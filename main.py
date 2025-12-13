@@ -100,7 +100,7 @@ LINE = apply_gradient("━━━━━━━━━━━━━━━━━━━
 
 # --- API CONFIGURATION ---
 API_URL = "https://admindatabase-y4iw.onrender.com/api"
-CURRENT_VERSION = "1.0.6"
+CURRENT_VERSION = "1.0.7"
 user_token = None
 user_data = None
 
@@ -166,9 +166,9 @@ def banner_header():
         
         is_active = user_data.get('isActive', False)
         if is_active:
-            status_display = G('[ACTIVE]')
+            status_display = G('[PAID ACCESS]')
         else:
-            status_display = R('[INACTIVE]')
+            status_display = R('[VALIDATION ONLY]')
         
         print(f" {W}[{RESET}•{W}]{RESET} {C('STATUS')}        {W}➤{RESET} {status_display}")
         
@@ -192,11 +192,18 @@ def show_menu():
         print(f" {W}[{RESET}{BG_M}{W}04{RESET}{BG_M}{W}/{RESET}{BG_M}{W}D{RESET}{W}]{RESET} {M('ADMIN PANEL             — MANAGEMENT')}")
         print(f" {W}[{RESET}{BG_G}{W}05{RESET}{BG_G}{W}/{RESET}{BG_G}{W}E{RESET}{W}]{RESET} {G('UPDATE TOOL             — LATEST VERSION')}")
         print(f" {W}[{RESET}{BG_R}{W}00{RESET}{BG_R}{W}/{RESET}{BG_R}{W}X{RESET}{W}]{RESET} {R('LOGOUT')}")
-    else:
+    elif user_data and user_data.get('isActive'):
+        # ACTIVATED USER - Full access
         print(f" {W}[{RESET}{BG_G}{W}01{RESET}{BG_G}{W}/{RESET}{BG_G}{W}A{RESET}{W}]{RESET} {G('AUTO SHARE              — SMM BOOSTER')}")
         print(f" {W}[{RESET}{BG_Y}{W}02{RESET}{BG_Y}{W}/{RESET}{BG_Y}{W}B{RESET}{W}]{RESET} {C('MANAGE COOKIES          — DATABASE')}")
         print(f" {W}[{RESET}{BG_B}{W}03{RESET}{BG_B}{W}/{RESET}{BG_B}{W}C{RESET}{W}]{RESET} {B('MY STATS                — STATISTICS')}")
         print(f" {W}[{RESET}{BG_G}{W}04{RESET}{BG_G}{W}/{RESET}{BG_G}{W}D{RESET}{W}]{RESET} {G('UPDATE TOOL             — LATEST VERSION')}")
+        print(f" {W}[{RESET}{BG_R}{W}00{RESET}{BG_R}{W}/{RESET}{BG_R}{W}X{RESET}{W}]{RESET} {R('LOGOUT')}")
+    else:
+        # DEACTIVATED USER - Cookie validation only
+        print(f" {W}[{RESET}{BG_Y}{W}01{RESET}{BG_Y}{W}/{RESET}{BG_Y}{W}A{RESET}{W}]{RESET} {Y('VALIDATE COOKIE         — CHECK ONLY')}")
+        print(f" {W}[{RESET}{BG_C}{W}02{RESET}{BG_C}{W}/{RESET}{BG_C}{W}B{RESET}{W}]{RESET} {C('MANAGE COOKIES          — DATABASE')}")
+        print(f" {W}[{RESET}{BG_B}{W}03{RESET}{BG_B}{W}/{RESET}{BG_B}{W}C{RESET}{W}]{RESET} {B('MY STATS                — STATISTICS')}")
         print(f" {W}[{RESET}{BG_R}{W}00{RESET}{BG_R}{W}/{RESET}{BG_R}{W}X{RESET}{W}]{RESET} {R('LOGOUT')}")
     print(LINE)
 
@@ -318,18 +325,15 @@ def login_user():
         print(f" {G('Welcome back,')} {M(user_data['username'].upper())}")
         
         is_active = user_data.get('isActive', False)
-        print(f" {G('Status:')} {G('ACTIVE') if is_active else R('INACTIVE')}")
+        if is_active:
+            print(f" {G('Status:')} {G('PAID ACCESS - FULL FEATURES')}")
+        else:
+            print(f" {G('Status:')} {Y('VALIDATION ONLY - CONTACT ADMIN FOR FULL ACCESS')}")
         print(f" {G('Total Cookies:')} {C(str(user_data.get('cookieCount', 0)))}")
         
         if user_data.get('isAdmin'):
             print(f" {M('[ADMIN ACCESS GRANTED]')}")
         
-        print(LINE)
-    elif status == 403:
-        print(f" {R('[ACCESS DENIED]')}")
-        print(LINE)
-        print(f" {R(response.get('message', 'Account not activated'))}")
-        print(f" {C('Please contact an administrator to activate your account.')}")
         print(LINE)
     else:
         print(f" {R('[ERROR]')} {R(response if isinstance(response, str) else response.get('message', 'Login failed'))}")
@@ -392,8 +396,8 @@ def register_user():
         print(f" {C('Your account has been created!')}")
         print(LINE)
         print(f" {R('⚠ IMPORTANT:')}")
-        print(f" {C('Your account is currently INACTIVE.')}")
-        print(f" {C('Contact admin to activate your account.')}")
+        print(f" {C('Your account currently has VALIDATION ONLY access.')}")
+        print(f" {C('Contact admin to get full paid access.')}")
         print(LINE)
     else:
         print(f" {R('[ERROR]')} {R(response if isinstance(response, str) else response.get('message', 'Registration failed'))}")
@@ -417,7 +421,10 @@ def show_user_stats():
         print(f" {W}[{RESET}•{W}]{RESET} {C('USERNAME')}      {W}➤{RESET} {G(stats['username'].upper())}")
         
         is_active = stats.get('isActive', False)
-        status_display = G('ACTIVE') if is_active else R('INACTIVE')
+        if is_active:
+            status_display = G('PAID ACCESS')
+        else:
+            status_display = Y('VALIDATION ONLY')
         print(f" {W}[{RESET}•{W}]{RESET} {C('STATUS')}        {W}➤{RESET} {status_display}")
         print(f" {W}[{RESET}•{W}]{RESET} {C('TOTAL SHARES')}  {W}➤{RESET} {M(str(stats['totalShares']))}")
         print(f" {W}[{RESET}•{W}]{RESET} {C('COOKIES')}       {W}➤{RESET} {G(str(stats.get('cookieCount', 0)))}")
@@ -607,6 +614,42 @@ def delete_all_cookies():
     print(LINE)
     input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
 
+def validate_cookie_only():
+    """Cookie validation for deactivated users"""
+    refresh_screen()
+    print(f" {Y('[COOKIE VALIDATION - CHECK ONLY]')}")
+    print(LINE)
+    print(f" {C('Note: You can only validate cookies.')}")
+    print(f" {C('Contact admin for full sharing access.')}")
+    print(LINE)
+    
+    cookie = input(f" {W}[{W}➤{W}]{RESET} {C('COOKIE')} {W}➤{RESET} ").strip()
+    if not cookie:
+        return
+    
+    refresh_screen()
+    print(f" {G('[!] VALIDATING COOKIE...')}")
+    nice_loader("VALIDATING")
+    
+    status, response = api_request("POST", "/user/cookies/validate", {"cookie": cookie})
+    
+    if status == 200 and response.get('success') and response.get('valid'):
+        print(f" {G('[✓] COOKIE IS VALID!')}")
+        print(LINE)
+        print(f" {C('Name:')} {M(response.get('name', 'Unknown'))}")
+        print(f" {C('UID:')} {C(response.get('uid', 'Unknown'))}")
+        print(f" {C('Token:')} {G('EAAG...' + response.get('eaagToken', '')[-10:])}")
+        print(LINE)
+        print(f" {Y('⚠ You can validate but cannot share.')}")
+        print(f" {Y('Contact admin for full access.')}")
+    else:
+        error_msg = response if isinstance(response, str) else response.get('message', 'Invalid cookie')
+        print(f" {R('[✗] INVALID COOKIE')}")
+        print(f" {R(error_msg)}")
+    
+    print(LINE)
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
 def update_tool_logic():
     print(f" {G('[!] CHECKING FOR UPDATES...')}")
     nice_loader("CHECKING")
@@ -668,7 +711,10 @@ def view_all_users():
         
         for i, user in enumerate(users, 1):
             admin_badge = f" {M('[ADMIN]')}" if user.get('isAdmin') else ""
-            status_badge = G('[ACTIVE]') if user.get('isActive') else R('[INACTIVE]')
+            if user.get('isActive'):
+                status_badge = G('[PAID ACCESS]')
+            else:
+                status_badge = Y('[VALIDATION ONLY]')
             
             print(f" {W}[{i:02d}]{RESET} {C(user['username'].upper())}{admin_badge} {status_badge}")
             print(f"      Country: {G(user['country'])} | Shares: {G(str(user['totalShares']))}")
@@ -682,7 +728,7 @@ def view_all_users():
 
 def activate_user():
     refresh_screen()
-    print(f" {G('[ACTIVATE USER]')}")
+    print(f" {G('[ACTIVATE USER - GRANT PAID ACCESS]')}")
     print(LINE)
     
     status, response = api_request("GET", "/admin/users")
@@ -700,7 +746,7 @@ def activate_user():
         return
     
     for i, user in enumerate(users, 1):
-        print(f" {W}[{i}]{RESET} {C(user['username'].upper())} - {R('[INACTIVE]')}")
+        print(f" {W}[{i}]{RESET} {C(user['username'].upper())} - {Y('[VALIDATION ONLY]')}")
     print(LINE)
     
     user_choice = input(f" {W}[{W}➤{W}]{RESET} {C('SELECT (0 to cancel)')} {W}➤{RESET} ").strip()
@@ -727,7 +773,8 @@ def activate_user():
     status, response = api_request("PUT", f"/admin/users/{selected_user['username']}/activate")
     
     if status == 200 and response.get('success'):
-        print(f" {G('[SUCCESS] User activated!')}")
+        print(f" {G('[SUCCESS] User activated with PAID ACCESS!')}")
+        print(f" {G('User now has full sharing features.')}")
     else:
         print(f" {R('[ERROR]')} {R(response.get('message', 'Failed'))}")
     
@@ -736,7 +783,7 @@ def activate_user():
 
 def deactivate_user():
     refresh_screen()
-    print(f" {R('[DEACTIVATE USER]')}")
+    print(f" {R('[DEACTIVATE USER - VALIDATION ONLY]')}")
     print(LINE)
     
     status, response = api_request("GET", "/admin/users")
@@ -754,7 +801,7 @@ def deactivate_user():
         return
     
     for i, user in enumerate(users, 1):
-        print(f" {W}[{i}]{RESET} {C(user['username'].upper())} - {G('[ACTIVE]')}")
+        print(f" {W}[{i}]{RESET} {C(user['username'].upper())} - {G('[PAID ACCESS]')}")
     print(LINE)
     
     user_choice = input(f" {W}[{W}➤{W}]{RESET} {C('SELECT (0 to cancel)')} {W}➤{RESET} ").strip()
@@ -782,6 +829,7 @@ def deactivate_user():
     
     if status == 200 and response.get('success'):
         print(f" {G('[SUCCESS] User deactivated!')}")
+        print(f" {Y('User can still validate cookies but cannot share.')}")
     else:
         print(f" {R('[ERROR]')} {R(response.get('message', 'Failed'))}")
     
@@ -808,7 +856,10 @@ def delete_user():
         return
     
     for i, user in enumerate(users, 1):
-        status_badge = G('[ACTIVE]') if user.get('isActive') else R('[INACTIVE]')
+        if user.get('isActive'):
+            status_badge = G('[PAID ACCESS]')
+        else:
+            status_badge = Y('[VALIDATION ONLY]')
         print(f" {W}[{i:02d}]{RESET} {C(user['username'].upper())} {status_badge}")
     print(LINE)
     
@@ -888,8 +939,8 @@ def dashboard_stats():
         print(f" {G('[ADMIN DASHBOARD]')}")
         print(LINE)
         print(f" {W}[{RESET}•{W}]{RESET} {C('TOTAL USERS')}     {W}➤{RESET} {G(str(stats['totalUsers']))}")
-        print(f" {W}[{RESET}•{W}]{RESET} {C('ACTIVE USERS')}    {W}➤{RESET} {G(str(stats['activeUsers']))}")
-        print(f" {W}[{RESET}•{W}]{RESET} {C('INACTIVE USERS')}  {W}➤{RESET} {R(str(stats['inactiveUsers']))}")
+        print(f" {W}[{RESET}•{W}]{RESET} {C('PAID ACCESS')}     {W}➤{RESET} {G(str(stats['activeUsers']))}")
+        print(f" {W}[{RESET}•{W}]{RESET} {C('VALIDATION ONLY')} {W}➤{RESET} {Y(str(stats['inactiveUsers']))}")
         print(f" {W}[{RESET}•{W}]{RESET} {C('TOTAL SHARES')}    {W}➤{RESET} {M(str(stats['totalShares']))}")
         print(f" {W}[{RESET}•{W}]{RESET} {C('PENDING ORDERS')}  {W}➤{RESET} {Y(str(stats.get('pendingOrders', 0)))}")
         print(f" {W}[{RESET}•{W}]{RESET} {C('COMPLETED')}       {W}➤{RESET} {G(str(stats.get('completedOrders', 0)))}")
@@ -939,10 +990,10 @@ def view_all_orders():
     
     input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
 
-# ============ SMM BOOSTER SHARING (ALTERNATIVE METHOD) ============
+# ============ SMM BOOSTER SHARING - ALTERNATIVE METHOD (NO DELAYS) ============
 
-async def get_token_alt(session, cookie):
-    """Get EAAG token using content_management method - NO DELAYS"""
+async def get_token_smm(session, cookie):
+    """Get EAAG token using content_management - SMM BOOST METHOD"""
     headers = {
         'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36',
         'sec-ch-ua': '"Google Chrome";v="107", "Chromium";v="107", "Not=A?Brand";v="24"',
@@ -966,8 +1017,8 @@ async def get_token_alt(session, cookie):
         pass
     return None
 
-async def share_alt(session, cookie, token, post_id):
-    """Share using b-graph method - MAXIMUM SPEED NO DELAYS"""
+async def share_smm_boost(session, cookie, token, post_id):
+    """Share using b-graph method - SMM BOOST (NO DELAYS)"""
     headers = {
         'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36',
         'sec-ch-ua': '"Google Chrome";v="107", "Chromium";v="107", "Not=A?Brand";v="24"',
@@ -990,16 +1041,13 @@ async def share_alt(session, cookie, token, post_id):
     except Exception as e:
         return False, str(e)
 
-async def share_loop_smm(session, cookie, token, post_id, account_uid, display_mode, target_shares=None):
-    """Share loop - MAXIMUM SPEED NO DELAYS"""
+async def share_loop_unlimited(session, cookie, token, post_id, account_uid, display_mode):
+    """Unlimited share loop - SMM BOOST (NO DELAYS, NO TARGET)"""
     global success_count
     
     while True:
-        if target_shares and success_count >= target_shares:
-            break
-        
         try:
-            is_success, result = await share_alt(session, cookie, token, post_id)
+            is_success, result = await share_smm_boost(session, cookie, token, post_id)
             
             if is_success:
                 async with lock:
@@ -1007,17 +1055,45 @@ async def share_loop_smm(session, cookie, token, post_id, account_uid, display_m
                     current_count = success_count
                 
                 if display_mode == 'minimal':
-                    if target_shares:
-                        sys.stdout.write(f"\r {apply_gradient(f'[{current_count}/{target_shares}]', 'green_yellow')} {W}|{RESET} {apply_gradient('SUCCESS', 'green_yellow')} {W}|{RESET} {apply_gradient(account_uid, 'purple_cyan')}          ")
-                    else:
-                        sys.stdout.write(f"\r {apply_gradient(f'[{current_count}]', 'green_yellow')} {W}|{RESET} {apply_gradient('SUCCESS', 'green_yellow')} {W}|{RESET} {apply_gradient(account_uid, 'purple_cyan')}          ")
+                    sys.stdout.write(f"\r {apply_gradient(f'[{current_count}]', 'green_yellow')} {W}|{RESET} {apply_gradient('SUCCESS', 'green_yellow')} {W}|{RESET} {apply_gradient(account_uid, 'purple_cyan')}          ")
                     sys.stdout.flush()
                 else:
                     current_time = datetime.datetime.now().strftime("%H:%M:%S")
-                    if target_shares:
-                        print(f" {G('[SUCCESS]')} {W}|{RESET} {C(current_time)} {W}|{RESET} {M(account_uid)} {W}|{RESET} {G(f'{current_count}/{target_shares}')}")
-                    else:
-                        print(f" {G('[SUCCESS]')} {W}|{RESET} {C(current_time)} {W}|{RESET} {M(account_uid)} {W}|{RESET} {G(f'Total: {current_count}')}")
+                    print(f" {G('[SUCCESS]')} {W}|{RESET} {C(current_time)} {W}|{RESET} {M(account_uid)} {W}|{RESET} {G(f'Total: {current_count}')}")
+            else:
+                if display_mode != 'minimal':
+                    current_time = datetime.datetime.now().strftime("%H:%M:%S")
+                    print(f" {R('[ERROR]')} {W}|{RESET} {C(current_time)} {W}|{RESET} {M(account_uid)} {W}|{RESET} {R(result[:30])}")
+        
+        except asyncio.CancelledError:
+            break
+        except KeyboardInterrupt:
+            break
+        except:
+            pass
+
+async def share_loop_order(session, cookie, token, post_id, account_uid, display_mode, target_shares):
+    """Order share loop - SMM BOOST (NO DELAYS, WITH TARGET)"""
+    global success_count
+    
+    while success_count < target_shares:
+        try:
+            is_success, result = await share_smm_boost(session, cookie, token, post_id)
+            
+            if is_success:
+                async with lock:
+                    success_count += 1
+                    current_count = success_count
+                
+                if display_mode == 'minimal':
+                    sys.stdout.write(f"\r {apply_gradient(f'[{current_count}/{target_shares}]', 'green_yellow')} {W}|{RESET} {apply_gradient('SUCCESS', 'green_yellow')} {W}|{RESET} {apply_gradient(account_uid, 'purple_cyan')}          ")
+                    sys.stdout.flush()
+                else:
+                    current_time = datetime.datetime.now().strftime("%H:%M:%S")
+                    print(f" {G('[SUCCESS]')} {W}|{RESET} {C(current_time)} {W}|{RESET} {M(account_uid)} {W}|{RESET} {G(f'{current_count}/{target_shares}')}")
+                
+                if success_count >= target_shares:
+                    break
             else:
                 if display_mode != 'minimal':
                     current_time = datetime.datetime.now().strftime("%H:%M:%S")
@@ -1090,11 +1166,10 @@ def generate_order_receipt(order_info, shares_completed):
     
     print(LINE)
 
-async def smm_share_main(post_link, selected_cookies, order_info=None):
-    """Main SMM sharing - MAXIMUM SPEED"""
+async def smm_unlimited_main(post_link, selected_cookies):
+    """Main SMM UNLIMITED sharing - NO DELAYS, NO TARGET"""
     global success_count
     success_count = 0
-    target_shares = order_info.get('quantity') if order_info else None
     
     refresh_screen()
     print(f" {C('[!] EXTRACTING TOKENS...')}")
@@ -1104,7 +1179,7 @@ async def smm_share_main(post_link, selected_cookies, order_info=None):
     
     async with aiohttp.ClientSession() as session:
         for cookie_data in selected_cookies:
-            token = await get_token_alt(session, cookie_data['cookie'])
+            token = await get_token_smm(session, cookie_data['cookie'])
             if token:
                 valid_accounts.append({
                     'cookie': cookie_data['cookie'],
@@ -1134,13 +1209,12 @@ async def smm_share_main(post_link, selected_cookies, order_info=None):
     display_mode = select_progress_display()
     
     refresh_screen()
-    print(f" {G('[SMM BOOSTER - MAXIMUM SPEED]')}")
+    print(f" {M('[SMM BOOST - UNLIMITED SHARING]')}")
     print(LINE)
     print(f" {W}[{RESET}•{W}]{RESET} {C('POST ID')}       {W}➤{RESET} {G(post_id)}")
     print(f" {W}[{RESET}•{W}]{RESET} {C('ACCOUNTS')}      {W}➤{RESET} {G(str(len(valid_accounts)))}")
-    print(f" {W}[{RESET}•{W}]{RESET} {C('SPEED')}         {W}➤{RESET} {M('MAXIMUM (NO DELAYS)')}")
-    if target_shares:
-        print(f" {W}[{RESET}•{W}]{RESET} {C('TARGET')}        {W}➤{RESET} {M(str(target_shares))}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('MODE')}          {W}➤{RESET} {M('UNLIMITED (NO TARGET)')}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('SPEED')}         {W}➤{RESET} {R('MAXIMUM (NO DELAYS)')}")
     print(LINE)
     print(f" {C('[TIP] Press Ctrl+C to stop')}")
     print(LINE)
@@ -1148,7 +1222,83 @@ async def smm_share_main(post_link, selected_cookies, order_info=None):
     async with aiohttp.ClientSession() as session:
         tasks = []
         for acc in valid_accounts:
-            task = asyncio.create_task(share_loop_smm(
+            task = asyncio.create_task(share_loop_unlimited(
+                session,
+                acc['cookie'],
+                acc['token'],
+                post_id,
+                acc['uid'],
+                display_mode
+            ))
+            tasks.append(task)
+        
+        try:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        except:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+async def smm_order_main(post_link, selected_cookies, order_info):
+    """Main SMM ORDER sharing - NO DELAYS, WITH TARGET"""
+    global success_count
+    success_count = 0
+    target_shares = order_info.get('quantity', 0)
+    
+    refresh_screen()
+    print(f" {C('[!] EXTRACTING TOKENS...')}")
+    nice_loader("EXTRACTING")
+    
+    valid_accounts = []
+    
+    async with aiohttp.ClientSession() as session:
+        for cookie_data in selected_cookies:
+            token = await get_token_smm(session, cookie_data['cookie'])
+            if token:
+                valid_accounts.append({
+                    'cookie': cookie_data['cookie'],
+                    'token': token,
+                    'uid': cookie_data['uid'],
+                    'name': cookie_data['name']
+                })
+                print(f" {G('✓')} {C(cookie_data['name'])} {W}({C(cookie_data['uid'])}){RESET}")
+            else:
+                print(f" {R('✗')} {C(cookie_data['name'])} {R('Failed')}")
+    
+    if not valid_accounts:
+        print(f" {R('[ERROR] No valid tokens!')}")
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return
+    
+    post_id = extract_post_id(post_link)
+    
+    if not post_id.isdigit():
+        async with aiohttp.ClientSession() as session:
+            post_id = await getid_online(session, post_link)
+            if not post_id:
+                print(f" {R('[ERROR] Failed to get post ID')}")
+                input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+                return
+    
+    display_mode = select_progress_display()
+    
+    refresh_screen()
+    print(f" {G('[SMM BOOST - ORDER SHARING]')}")
+    print(LINE)
+    print(f" {W}[{RESET}•{W}]{RESET} {C('ORDER ID')}      {W}➤{RESET} {M(order_info.get('orderId', 'N/A'))}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('POST ID')}       {W}➤{RESET} {G(post_id)}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('ACCOUNTS')}      {W}➤{RESET} {G(str(len(valid_accounts)))}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('TARGET')}        {W}➤{RESET} {M(str(target_shares))}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('SPEED')}         {W}➤{RESET} {R('MAXIMUM (NO DELAYS)')}")
+    print(LINE)
+    print(f" {C('[TIP] Press Ctrl+C to stop')}")
+    print(LINE)
+    
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for acc in valid_accounts:
+            task = asyncio.create_task(share_loop_order(
                 session,
                 acc['cookie'],
                 acc['token'],
@@ -1160,18 +1310,15 @@ async def smm_share_main(post_link, selected_cookies, order_info=None):
             tasks.append(task)
         
         try:
-            if target_shares:
-                while success_count < target_shares:
-                    await asyncio.sleep(0.1)
-                    if all(task.done() for task in tasks):
-                        break
-                
-                for task in tasks:
-                    if not task.done():
-                        task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
-            else:
-                await asyncio.gather(*tasks, return_exceptions=True)
+            while success_count < target_shares:
+                await asyncio.sleep(0.1)
+                if all(task.done() for task in tasks):
+                    break
+            
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
         except:
             for task in tasks:
                 if not task.done():
@@ -1242,7 +1389,7 @@ def start_auto_share():
     print(f" {C('[!] SMM BOOSTER - AUTO SHARE')}")
     print(LINE)
     print(f" {W}[{RESET}{BG_G}{W}1{RESET}{W}]{RESET} {G('BOOSTER ORDER (With Receipt)')}")
-    print(f" {W}[{RESET}{BG_C}{W}2{RESET}{W}]{RESET} {C('UNLIMITED SHARING')}")
+    print(f" {W}[{RESET}{BG_M}{W}2{RESET}{W}]{RESET} {M('UNLIMITED SHARING (NO DELAYS)')}")
     print(LINE)
     
     order_choice = input(f" {W}[{W}➤{W}]{RESET} {C('CHOICE')} {W}➤{RESET} ").strip()
@@ -1250,6 +1397,7 @@ def start_auto_share():
     order_info = None
     
     if order_choice == '1':
+        # BOOSTER ORDER (With Receipt)
         refresh_screen()
         print(f" {M('[CREATE BOOSTER ORDER]')}")
         print(LINE)
@@ -1294,56 +1442,83 @@ def start_auto_share():
             print(f" {R('[ERROR]')} {R(response.get('message', 'Failed') if isinstance(response, dict) else 'Failed')}")
             input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
             return
-    else:
-        refresh_screen()
-        print(f" {C('[UNLIMITED SHARING]')}")
-        print(LINE)
         
-        post_link = input(f" {W}[{W}➤{W}]{RESET} {C('POST LINK')} {W}➤{RESET} ").strip()
-        if not post_link:
+        selected_cookies = select_cookies_for_sharing()
+        if not selected_cookies:
             return
-    
-    selected_cookies = select_cookies_for_sharing()
-    if not selected_cookies:
-        return
-    
-    try:
-        asyncio.run(smm_share_main(post_link if not order_info else order_info.get('postLink'), selected_cookies, order_info))
         
-        if order_info:
+        try:
+            asyncio.run(smm_order_main(order_info.get('postLink'), selected_cookies, order_info))
+            
             generate_order_receipt(order_info, success_count)
             
             api_request("PUT", f"/admin/orders/{order_info.get('orderId')}", {
                 "status": "completed" if success_count >= order_info.get('quantity', 0) else "processing",
                 "currentCount": success_count
             })
-        else:
+            
+            if success_count > 0:
+                api_request("POST", "/share/complete", {"totalShares": success_count})
+            
+        except KeyboardInterrupt:
             print()
             print(LINE)
-            print(f" {G(f'[COMPLETED] Total Shares: {success_count}')}")
-            print(LINE)
-        
-        if success_count > 0:
-            api_request("POST", "/share/complete", {"totalShares": success_count})
-        
-    except KeyboardInterrupt:
-        print()
-        print(LINE)
-        
-        if order_info:
+            
             generate_order_receipt(order_info, success_count)
             api_request("PUT", f"/admin/orders/{order_info.get('orderId')}", {
                 "status": "processing",
                 "currentCount": success_count
             })
-        else:
-            print(f" {C(f'[STOPPED] Total Shares: {success_count}')}")
+            
+            if success_count > 0:
+                api_request("POST", "/share/complete", {"totalShares": success_count})
         
-        if success_count > 0:
-            api_request("POST", "/share/complete", {"totalShares": success_count})
+        except Exception as e:
+            print(f" {R(f'[ERROR] {str(e)}')}")
     
-    except Exception as e:
-        print(f" {R(f'[ERROR] {str(e)}')}")
+    elif order_choice == '2':
+        # UNLIMITED SHARING (NO DELAYS) - SMM BOOST
+        refresh_screen()
+        print(f" {M('[UNLIMITED SHARING - SMM BOOST]')}")
+        print(LINE)
+        print(f" {R('⚠ WARNING: This will share CONTINUOUSLY!')}")
+        print(f" {C('Press Ctrl+C to stop at any time.')}")
+        print(LINE)
+        
+        post_link = input(f" {W}[{W}➤{W}]{RESET} {C('POST LINK')} {W}➤{RESET} ").strip()
+        if not post_link:
+            return
+        
+        selected_cookies = select_cookies_for_sharing()
+        if not selected_cookies:
+            return
+        
+        try:
+            asyncio.run(smm_unlimited_main(post_link, selected_cookies))
+            
+            print()
+            print(LINE)
+            print(f" {G(f'[COMPLETED] Total Shares: {success_count}')}")
+            print(LINE)
+            
+            if success_count > 0:
+                api_request("POST", "/share/complete", {"totalShares": success_count})
+            
+        except KeyboardInterrupt:
+            print()
+            print(LINE)
+            print(f" {C(f'[STOPPED] Total Shares: {success_count}')}")
+            
+            if success_count > 0:
+                api_request("POST", "/share/complete", {"totalShares": success_count})
+        
+        except Exception as e:
+            print(f" {R(f'[ERROR] {str(e)}')}")
+    
+    else:
+        print(f" {R('[!] INVALID')}")
+        time.sleep(0.5)
+        return
     
     print(LINE)
     input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
@@ -1377,31 +1552,63 @@ def main():
                 print(f"\n {R('[!] INVALID')}")
                 time.sleep(0.5)
         else:
-            if choice in ['1', '01', 'A']:
-                start_auto_share()
-            elif choice in ['2', '02', 'B']:
-                manage_cookies()
-            elif choice in ['3', '03', 'C']:
-                show_user_stats()
-            elif choice in ['4', '04', 'D']:
-                if user_data and user_data.get('isAdmin'):
+            is_active = user_data.get('isActive', False) if user_data else False
+            is_admin = user_data.get('isAdmin', False) if user_data else False
+            
+            if is_admin:
+                # ADMIN MENU
+                if choice in ['1', '01', 'A']:
+                    start_auto_share()
+                elif choice in ['2', '02', 'B']:
+                    manage_cookies()
+                elif choice in ['3', '03', 'C']:
+                    show_user_stats()
+                elif choice in ['4', '04', 'D']:
                     admin_panel()
-                else:
+                elif choice in ['5', '05', 'E']:
                     update_tool_logic()
-            elif choice in ['5', '05', 'E']:
-                if user_data and user_data.get('isAdmin'):
-                    update_tool_logic()
+                elif choice in ['0', '00', 'X']:
+                    print(f"\n {C('[!] LOGOUT')}")
+                    user_token = None
+                    user_data = None
+                    time.sleep(0.5)
                 else:
                     print(f"\n {R('[!] INVALID')}")
                     time.sleep(0.5)
-            elif choice in ['0', '00', 'X']:
-                print(f"\n {C('[!] LOGOUT')}")
-                user_token = None
-                user_data = None
-                time.sleep(0.5)
+            elif is_active:
+                # ACTIVATED USER MENU (PAID ACCESS)
+                if choice in ['1', '01', 'A']:
+                    start_auto_share()
+                elif choice in ['2', '02', 'B']:
+                    manage_cookies()
+                elif choice in ['3', '03', 'C']:
+                    show_user_stats()
+                elif choice in ['4', '04', 'D']:
+                    update_tool_logic()
+                elif choice in ['0', '00', 'X']:
+                    print(f"\n {C('[!] LOGOUT')}")
+                    user_token = None
+                    user_data = None
+                    time.sleep(0.5)
+                else:
+                    print(f"\n {R('[!] INVALID')}")
+                    time.sleep(0.5)
             else:
-                print(f"\n {R('[!] INVALID')}")
-                time.sleep(0.5)
+                # DEACTIVATED USER MENU (VALIDATION ONLY)
+                if choice in ['1', '01', 'A']:
+                    validate_cookie_only()
+                elif choice in ['2', '02', 'B']:
+                    manage_cookies()
+                elif choice in ['3', '03', 'C']:
+                    show_user_stats()
+                elif choice in ['0', '00', 'X']:
+                    print(f"\n {C('[!] LOGOUT')}")
+                    user_token = None
+                    user_data = None
+                    time.sleep(0.5)
+                else:
+                    print(f"\n {R('[!] INVALID')}")
+                    time.sleep(0.5)
 
 if __name__ == "__main__":
     main()
