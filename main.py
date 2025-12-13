@@ -99,7 +99,7 @@ BG_B = '\033[44m'
 LINE = apply_gradient("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", 'purple_cyan')
 
 # --- API CONFIGURATION ---
-API_URL = "https://rpwtools.onrender.com/api"
+API_URL = "https://admindatabase-y4iw.onrender.com/api"
 CURRENT_VERSION = "1.0.6"
 user_token = None
 user_data = None
