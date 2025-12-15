@@ -1,0 +1,2100 @@
+import os
+import sys
+import time
+import json
+import aiohttp
+import asyncio
+import datetime
+import requests
+import re
+import threading
+
+try:
+    from colorama import init
+    init()
+except ImportError:
+    print("ERROR: colorama not installed. Please run: pip install -r requirements.txt")
+    sys.exit(1)
+
+# Check and install espeak if needed
+try:
+    result = os.system('espeak --version > /dev/null 2>&1')
+    if result != 0:
+        print("Installing espeak...")
+        os.system('pkg install espeak -y > /dev/null 2>&1 || apt-get install espeak -y > /dev/null 2>&1')
+except:
+    pass
+
+# --- GRADIENT COLOR SYSTEM ---
+def get_gradient_color(progress, color_scheme='purple_cyan'):
+    """Generate RGB color code based on progress (0.0 to 1.0)"""
+    progress = max(0, min(1, progress))
+    
+    color_schemes = {
+        'purple_cyan': [
+            (138, 43, 226), (147, 51, 234), (168, 85, 247), (192, 132, 252),
+            (216, 180, 254), (147, 197, 253), (125, 211, 252), (34, 211, 238),
+        ],
+        'green_yellow': [
+            (16, 185, 129), (52, 211, 153), (110, 231, 183), (167, 243, 208),
+            (253, 224, 71), (250, 204, 21),
+        ],
+        'red_orange': [
+            (220, 38, 38), (239, 68, 68), (248, 113, 113), (251, 146, 60),
+            (253, 186, 116), (254, 215, 170),
+        ],
+        'blue_purple': [
+            (37, 99, 235), (59, 130, 246), (96, 165, 250), (147, 197, 253),
+            (167, 139, 250), (196, 181, 253),
+        ]
+    }
+    
+    levels = color_schemes.get(color_scheme, color_schemes['purple_cyan'])
+    
+    index = progress * (len(levels) - 1)
+    lower_index = int(index)
+    upper_index = min(lower_index + 1, len(levels) - 1)
+    
+    if lower_index == upper_index:
+        r, g, b = levels[lower_index]
+    else:
+        fraction = index - lower_index
+        r1, g1, b1 = levels[lower_index]
+        r2, g2, b2 = levels[upper_index]
+        
+        r = int(r1 + (r2 - r1) * fraction)
+        g = int(g1 + (g2 - g1) * fraction)
+        b = int(b1 + (b2 - b1) * fraction)
+    
+    return f'\033[38;2;{r};{g};{b}m'
+
+def apply_gradient(text, color_scheme='purple_cyan'):
+    """Apply gradient color to text"""
+    if not text.strip():
+        return text
+    
+    result = []
+    chars = [c for c in text if c != ' ']
+    
+    if not chars:
+        return text
+    
+    char_index = 0
+    for c in text:
+        if c == ' ':
+            result.append(c)
+        else:
+            progress = char_index / max(1, len(chars) - 1)
+            color = get_gradient_color(progress, color_scheme)
+            result.append(color + c + '\033[0m')
+            char_index += 1
+    
+    return ''.join(result)
+
+# Color helpers
+G = lambda text: apply_gradient(str(text), 'green_yellow')
+R = lambda text: apply_gradient(str(text), 'red_orange')
+C = lambda text: apply_gradient(str(text), 'purple_cyan')
+Y = lambda text: apply_gradient(str(text), 'green_yellow')
+M = lambda text: apply_gradient(str(text), 'blue_purple')
+B = lambda text: apply_gradient(str(text), 'purple_cyan')
+W = '\033[1;37m'
+RESET = '\033[0m'
+
+# Background colors
+BG_R = '\033[41m'
+BG_G = '\033[42m'
+BG_C = '\033[46m'
+BG_M = '\033[45m'
+BG_Y = '\033[43m'
+BG_B = '\033[44m'
+
+LINE = apply_gradient("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", 'purple_cyan')
+
+# --- API CONFIGURATION ---
+API_URL = "https://admindatabase-y4iw.onrender.com/api"
+CURRENT_VERSION = "1.1.0"
+user_token = None
+user_data = None
+
+# --- ESPEAK CONFIGURATION ---
+def speak(text):
+    """Text-to-speech using espeak (non-blocking)"""
+    try:
+        threading.Thread(target=lambda: os.system(f'espeak -a 200 -s 150 "{text}" > /dev/null 2>&1'), daemon=True).start()
+    except:
+        pass
+
+def animate_text(text, color_func=C, delay=0.03):
+    """Animate text with fade-in effect letter by letter"""
+    for i, char in enumerate(text):
+        if char == ' ':
+            sys.stdout.write(' ')
+        else:
+            progress = i / max(1, len(text) - 1)
+            colored_char = color_func(char)
+            sys.stdout.write(colored_char)
+        sys.stdout.flush()
+        time.sleep(delay)
+    print()
+
+def display_prompt(display_text, color_func=C):
+    """Display prompt without animation"""
+    print(f" {W}[{W}➤{W}]{RESET} {color_func(display_text)} {W}➤{RESET} ", end='', flush=True)
+
+# --- GLOBAL VARIABLES ---
+success_count = 0
+lock = asyncio.Lock()
+current_order = None
+
+def clear():
+    os.system('clear' if os.name != 'nt' else 'cls')
+
+def normalize_facebook_url(url):
+    if not url:
+        return url
+    url = url.strip()
+    url = re.sub(r'^https?://', '', url, flags=re.IGNORECASE)
+    url = re.sub(r'^(www\.|m\.)', '', url, flags=re.IGNORECASE)
+    if not url.startswith('facebook.com'):
+        if '/' not in url:
+            url = f'facebook.com/{url}'
+    return url
+
+def validate_smm_post_link(url):
+    """
+    Validate if the post link is supported for SMM Panel Boost.
+    NOT SUPPORTED formats:
+    - https://www.facebook.com/share/p/XXXX/
+    - https://www.facebook.com/share/XXXX/
+    These formats are REJECTED.
+    """
+    if not url:
+        return True
+    
+    url = url.strip()
+    
+    unsupported_patterns = [
+        r'^https?://(www\.|m\.)?facebook\.com/share/p/[\w]+/?$',
+        r'^https?://(www\.|m\.)?facebook\.com/share/[\w]+/?$',
+    ]
+    
+    for pattern in unsupported_patterns:
+        if re.match(pattern, url, re.IGNORECASE):
+            return False
+    
+    return True
+
+def check_version():
+    """Check if tool version matches server version"""
+    try:
+        status, response = api_request("GET", "/version", use_token=False)
+        if status == 200 and response.get('success'):
+            server_version = response.get('version', '1.0.0')
+            if server_version != CURRENT_VERSION:
+                clear()
+                print(LINE)
+                print(f" {R('[VERSION MISMATCH]')}")
+                print(LINE)
+                print(f" {C('Your tool version:')} {R(CURRENT_VERSION)}")
+                print(f" {C('Server version:')} {G(server_version)}")
+                print(LINE)
+                print(f" {R('⚠ Your tool is outdated!')}")
+                print(f" {C('Please update to the latest version to continue using this tool.')}")
+                print(LINE)
+                input(f"\n {R('[PRESS ENTER TO EXIT]')}")
+                sys.exit(1)
+    except:
+        pass
+
+def banner_header():
+    banner_art = """
+    ╦═╗╔═╗╦ ╦╔╦╗╔═╗╔═╗╦  ╔═╗
+    ╠╦╝╠═╝║║║ ║ ║ ║║ ║║  ╚═╗
+    ╩╚═╩  ╚╩╝ ╩ ╚═╝╚═╝╩═╝╚═╝
+    """
+    print(apply_gradient(banner_art, 'purple_cyan'))
+    print(LINE)
+    print(f" {W}[{RESET}•{W}]{RESET} {C('DEVELOPER')}     {W}➤{RESET} {G('KEN DRICK')}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('GITHUB')}        {W}➤{RESET} {G('RYO GRAHHH')}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('VERSION')}       {W}➤{RESET} {G(CURRENT_VERSION)}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('FACEBOOK')}      {W}➤{RESET} {G('facebook.com/ryoevisu')}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('TOOL NAME')}     {W}➤{RESET} {R('[ RPWTOOLS ]')}")
+    
+    if user_data:
+        print(LINE)
+        print(f" {W}[{RESET}•{W}]{RESET} {C('USERNAME')}       {W}➤{RESET} {G(user_data['username'].upper())}")
+        print(f" {W}[{RESET}•{W}]{RESET} {C('FACEBOOK')}       {W}➤{RESET} {G(user_data.get('facebook', 'N/A'))}")
+        print(f" {W}[{RESET}•{W}]{RESET} {C('COUNTRY')}        {W}➤{RESET} {G(user_data.get('country', 'N/A').upper())}")
+        
+        is_active = user_data.get('isActive', False)
+        
+        if is_active:
+            status_display = G('[ACTIVE - FULL ACCESS]')
+        else:
+            status_display = R('[INACTIVE - LIMITED]')
+        
+        print(f" {W}[{RESET}•{W}]{RESET} {C('STATUS')}         {W}➤{RESET} {status_display}")
+        
+        cookie_count = user_data.get('cookieCount', 0)
+        print(f" {W}[{RESET}•{W}]{RESET} {C('TOTAL COOKIES')}  {W}➤{RESET} {G(str(cookie_count))}")
+    
+    print(LINE)
+
+def show_menu():
+    if not user_token:
+        print(f" {W}[{RESET}{BG_G}{W}01{RESET}{BG_G}{W}/{RESET}{BG_G}{W}A{RESET}{W}]{RESET} {G('LOGIN')}")
+        print(f" {W}[{RESET}{BG_C}{W}02{RESET}{BG_C}{W}/{RESET}{BG_C}{W}B{RESET}{W}]{RESET} {C('REGISTER')}")
+        print(f" {W}[{RESET}{BG_R}{W}00{RESET}{BG_R}{W}/{RESET}{BG_R}{W}X{RESET}{W}]{RESET} {R('EXIT')}")
+    elif user_data and user_data.get('isAdmin'):
+        print(f" {W}[{RESET}{BG_G}{W}01{RESET}{BG_G}{W}/{RESET}{BG_G}{W}A{RESET}{W}]{RESET} {G('AUTO SHARE              — NORM ACCOUNTS')}")
+        print(f" {W}[{RESET}{BG_M}{W}02{RESET}{BG_M}{W}/{RESET}{BG_M}{W}B{RESET}{W}]{RESET} {M('SMM PANEL               — MOST RECOMMENDED')}")
+        print(f" {W}[{RESET}{BG_C}{W}03{RESET}{BG_C}{W}/{RESET}{BG_C}{W}C{RESET}{W}]{RESET} {C('MANAGE COOKIES          — DATABASE')}")
+        print(f" {W}[{RESET}{BG_B}{W}04{RESET}{BG_B}{W}/{RESET}{BG_B}{W}D{RESET}{W}]{RESET} {B('MY STATS                — STATISTICS')}")
+        print(f" {W}[{RESET}{BG_Y}{W}05{RESET}{BG_Y}{W}/{RESET}{BG_Y}{W}E{RESET}{W}]{RESET} {Y('ADMIN PANEL             — MANAGEMENT')}")
+        print(f" {W}[{RESET}{BG_G}{W}06{RESET}{BG_G}{W}/{RESET}{BG_G}{W}F{RESET}{W}]{RESET} {G('UPDATE TOOL             — LATEST VERSION')}")
+        print(f" {W}[{RESET}{BG_R}{W}00{RESET}{BG_R}{W}/{RESET}{BG_R}{W}X{RESET}{W}]{RESET} {R('LOGOUT')}")
+    elif user_data and user_data.get('isActive'):
+        print(f" {W}[{RESET}{BG_G}{W}01{RESET}{BG_G}{W}/{RESET}{BG_G}{W}A{RESET}{W}]{RESET} {G('AUTO SHARE              — NORM ACCOUNTS')}")
+        print(f" {W}[{RESET}{BG_M}{W}02{RESET}{BG_M}{W}/{RESET}{BG_M}{W}B{RESET}{W}]{RESET} {M('SMM PANEL               — MOST RECOMMENDED')}")
+        print(f" {W}[{RESET}{BG_C}{W}03{RESET}{BG_C}{W}/{RESET}{BG_C}{W}C{RESET}{W}]{RESET} {C('MANAGE COOKIES          — DATABASE')}")
+        print(f" {W}[{RESET}{BG_B}{W}04{RESET}{BG_B}{W}/{RESET}{BG_B}{W}D{RESET}{W}]{RESET} {B('MY STATS                — STATISTICS')}")
+        print(f" {W}[{RESET}{BG_G}{W}05{RESET}{BG_G}{W}/{RESET}{BG_G}{W}E{RESET}{W}]{RESET} {G('UPDATE TOOL             — LATEST VERSION')}")
+        print(f" {W}[{RESET}{BG_R}{W}00{RESET}{BG_R}{W}/{RESET}{BG_R}{W}X{RESET}{W}]{RESET} {R('LOGOUT')}")
+    else:
+        print(f" {W}[{RESET}{BG_C}{W}01{RESET}{BG_C}{W}/{RESET}{BG_C}{W}A{RESET}{W}]{RESET} {C('MANAGE COOKIES          — DATABASE')}")
+        print(f" {W}[{RESET}{BG_B}{W}02{RESET}{BG_B}{W}/{RESET}{BG_B}{W}B{RESET}{W}]{RESET} {B('MY STATS                — STATISTICS')}")
+        print(f" {W}[{RESET}{BG_R}{W}00{RESET}{BG_R}{W}/{RESET}{BG_R}{W}X{RESET}{W}]{RESET} {R('LOGOUT')}")
+    print(LINE)
+
+def refresh_screen():
+    clear()
+    banner_header()
+    show_menu()
+
+def nice_loader(text="PROCESSING"):
+    """Sweeti-style animated loader"""
+    sys.stdout.write("\033[?25l")
+    animation = ["[\x1b[1;91m■\x1b[0m□□□□□□□□□]","[\x1b[1;92m■■\x1b[0m□□□□□□□□]", "[\x1b[1;93m■■■\x1b[0m□□□□□□□]", "[\x1b[1;94m■■■■\x1b[0m□□□□□□]", "[\x1b[1;95m■■■■■\x1b[0m□□□□□]", "[\x1b[1;96m■■■■■■\x1b[0m□□□□]", "[\x1b[1;97m■■■■■■■\x1b[0m□□□]", "[\x1b[1;98m■■■■■■■■\x1b[0m□□]", "[\x1b[1;99m■■■■■■■■■\x1b[0m□]", "[\x1b[1;910m■■■■■■■■■■\x1b[0m]"]
+    
+    for i in range(30):
+        time.sleep(0.1)
+        sys.stdout.write(f"\r {W}[{RESET}•{W}]{RESET} {G(text)} {W}➤{RESET} " + animation[i % len(animation)])
+        sys.stdout.flush()
+    
+    sys.stdout.write(f"\r{' ' * 80}\r")
+    sys.stdout.flush()
+    sys.stdout.write("\033[?25h")
+
+def select_progress_display():
+    refresh_screen()
+    print(f" {C('[SHARING PROGRESS DISPLAY]')}")
+    print(LINE)
+    print(f" {G('Choose how you want to see sharing progress:')}")
+    print(LINE)
+    print(f" {W}[{RESET}{BG_G}{W}1{RESET}{W}]{RESET} {G('SUCCESS COUNTER (1/100)')}")
+    print(f"     {C('• Best for smaller screens (mobile)')}")
+    print(LINE)
+    print(f" {W}[{RESET}{BG_C}{W}2{RESET}{W}]{RESET} {C('DETAILED LOGS')}")
+    print(f"     {G('• Best for larger screens (desktop)')}")
+    print(LINE)
+    
+    while True:
+        choice = input(f" {W}[{W}➤{W}]{RESET} {C('CHOICE (1 or 2)')} {W}➤{RESET} ").strip()
+        if choice == '1':
+            return 'minimal'
+        elif choice == '2':
+            return 'detailed'
+        else:
+            print(f" {R('[!] Invalid choice. Please enter 1 or 2')}")
+            time.sleep(1)
+            sys.stdout.write("\033[F\033[K")
+            sys.stdout.flush()
+
+def get_country_from_ip():
+    try:
+        response = requests.get('http://ip-api.com/json/', timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('country', 'Unknown')
+    except:
+        pass
+    return 'Unknown'
+
+def api_request(method, endpoint, data=None, use_token=True):
+    headers = {"Content-Type": "application/json"}
+    
+    if use_token and user_token:
+        headers["Authorization"] = f"Bearer {user_token}"
+    
+    url = f"{API_URL}{endpoint}"
+    
+    try:
+        if method == "GET":
+            response = requests.get(url, headers=headers, timeout=10)
+        elif method == "POST":
+            response = requests.post(url, json=data, headers=headers, timeout=10)
+        elif method == "PUT":
+            response = requests.put(url, json=data, headers=headers, timeout=10)
+        elif method == "DELETE":
+            response = requests.delete(url, headers=headers, timeout=10)
+        else:
+            return None, "Invalid method"
+        
+        return response.status_code, response.json()
+    except requests.exceptions.ConnectionError:
+        return None, "Cannot connect to server"
+    except requests.exceptions.Timeout:
+        return None, "Request timeout"
+    except Exception as e:
+        return None, f"Error: {str(e)}"
+
+def login_user():
+    global user_token, user_data
+    
+    refresh_screen()
+    print(f" {G('[!] LOGIN TO RPWTOOLS')}")
+    print(LINE)
+    speak("Login to RPW Tools")
+    
+    display_prompt("USERNAME", C)
+    username = input().strip()
+    if not username:
+        return
+    
+    display_prompt("PASSWORD", C)
+    password = input().strip()
+    if not password:
+        return
+    
+    refresh_screen()
+    speak("Logging in, please wait")
+    nice_loader("LOGGING IN")
+    
+    status, response = api_request("POST", "/auth/login", {
+        "username": username,
+        "password": password
+    }, use_token=False)
+    
+    if status == 200 and response.get('success'):
+        user_token = response.get('token')
+        user_data = response.get('user')
+        
+        speak("Login successful, Welcome back")
+        print(f" {G('[SUCCESS] Login successful!')}")
+        print(LINE)
+        print(f" {G('Welcome back,')} {M(user_data['username'].upper())}")
+        
+        is_active = user_data.get('isActive', False)
+        
+        if is_active:
+            status_text = 'ACTIVE - FULL ACCESS'
+            print(f" {G('Status:')} {G(status_text)}")
+        else:
+            status_text = 'INACTIVE - LIMITED ACCESS'
+            print(f" {G('Status:')} {R(status_text)}")
+            print(f" {Y('⚠ You can only manage cookies. Contact admin to activate.')}")
+        
+        print(f" {G('Total Cookies:')} {C(str(user_data.get('cookieCount', 0)))}")
+        
+        if user_data.get('isAdmin'):
+            print(f" {M('[ADMIN ACCESS GRANTED]')}")
+        
+        print(LINE)
+    elif status == 403:
+        if response.get('allowLimited'):
+            user_token = response.get('token')
+            user_data = response.get('user')
+            print(f" {Y('[LIMITED ACCESS]')}")
+            print(LINE)
+            print(f" {Y(response.get('message', 'Account not activated'))}")
+            print(f" {C('You can still manage cookies.')}")
+            print(LINE)
+        else:
+            print(f" {R('[ACCESS DENIED]')}")
+            print(LINE)
+            print(f" {R(response.get('message', 'Account not activated'))}")
+            print(LINE)
+    else:
+        print(f" {R('[ERROR]')} {R(response if isinstance(response, str) else response.get('message', 'Login failed'))}")
+        print(LINE)
+    
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
+def register_user():
+    global user_token, user_data
+    
+    refresh_screen()
+    print(f" {G('[!] REGISTER NEW ACCOUNT')}")
+    print(LINE)
+    speak("Register new account")
+    
+    display_prompt("USERNAME", C)
+    username = input().strip()
+    if not username:
+        return
+    
+    display_prompt("PASSWORD", C)
+    password = input().strip()
+    if not password:
+        return
+    
+    display_prompt("FACEBOOK LINK", C)
+    facebook = input().strip()
+    if not facebook:
+        return
+    
+    facebook = normalize_facebook_url(facebook)
+    
+    refresh_screen()
+    print(f" {G('[!] NORMALIZED FACEBOOK URL:')} {C(facebook)}")
+    print(LINE)
+    
+    print(f" {G('[!] DETECTING YOUR COUNTRY...')}")
+    speak("Detecting your country")
+    nice_loader("DETECTING")
+    
+    country = get_country_from_ip()
+    
+    refresh_screen()
+    print(f" {G('[!] DETECTED COUNTRY:')} {C(country)}")
+    print(LINE)
+    confirm = input(f" {W}[{W}➤{W}]{RESET} {G('Is this correct? (Y/N)')} {W}➤{RESET} ").strip().upper()
+    
+    if confirm == 'N':
+        country = input(f" {W}[{W}➤{W}]{RESET} {C('ENTER YOUR COUNTRY')} {W}➤{RESET} ").strip()
+    
+    refresh_screen()
+    speak("Registering your account")
+    nice_loader("REGISTERING")
+    
+    status, response = api_request("POST", "/auth/register", {
+        "username": username,
+        "password": password,
+        "facebook": facebook,
+        "country": country
+    }, use_token=False)
+    
+    if status == 201 and response.get('success'):
+        user_token = response.get('token')
+        user_data = response.get('user')
+        
+        speak("Registration successful")
+        print(f" {G('[SUCCESS] Registration successful!')}")
+        print(LINE)
+        print(f" {M(user_data['username'].upper())}")
+        print(f" {C('Your account has been created!')}")
+        print(LINE)
+        print(f" {R('⚠ IMPORTANT NOTICE:')}")
+        print(f" {C('Your account is currently INACTIVE.')}")
+        print(f" {C('Please contact an administrator to activate your account.')}")
+        print(f" {C('You can still manage cookies while waiting for activation.')}")
+        print(LINE)
+    else:
+        print(f" {R('[ERROR]')} {R(response if isinstance(response, str) else response.get('message', 'Registration failed'))}")
+        print(LINE)
+    
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
+def show_user_stats():
+    refresh_screen()
+    print(f" {G('[!] LOADING STATS...')}")
+    nice_loader("LOADING")
+    
+    status, response = api_request("GET", "/user/stats")
+    
+    if status == 200 and response.get('success'):
+        stats = response.get('stats')
+        
+        refresh_screen()
+        print(f" {G('[USER STATISTICS]')}")
+        print(LINE)
+        print(f" {C('Username:')} {W}{stats['username'].upper()}{RESET}")
+        
+        is_active = stats.get('isActive', False)
+        status_display = G('ACTIVE - FULL ACCESS') if is_active else R('INACTIVE - LIMITED')
+        print(f" {C('Account Status:')} {status_display}")
+        
+        print(LINE)
+        print(f" {C('[STATISTICS]')}")
+        print(f" {G('Total Shares:')} {M(str(stats['totalShares']))}")
+        print(f" {G('Total Cookies:')} {C(str(stats.get('cookieCount', 0)))}")
+        print(LINE)
+    else:
+        print(f" {R('[ERROR]')} {R('Failed to get stats')}")
+        print(LINE)
+    
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
+def manage_cookies():
+    while True:
+        refresh_screen()
+        print(f" {G('[MANAGE COOKIES]')}")
+        print(LINE)
+        print(f" {W}[{W}1{W}]{RESET} {G('VIEW ALL COOKIES')}")
+        print(f" {W}[{W}2{W}]{RESET} {G('ADD COOKIE')}")
+        print(f" {W}[{W}3{W}]{RESET} {R('DELETE COOKIE')}")
+        print(f" {W}[{W}4{W}]{RESET} {R('DELETE ALL COOKIES')}")
+        print(f" {W}[{W}0{W}]{RESET} {C('BACK')}")
+        print(LINE)
+        
+        choice = input(f" {W}[{W}➤{W}]{RESET} {C('CHOICE')} {W}➤{RESET} ").strip()
+        
+        if choice == '1':
+            view_cookies()
+        elif choice == '2':
+            add_cookie()
+        elif choice == '3':
+            delete_cookie()
+        elif choice == '4':
+            delete_all_cookies()
+        elif choice == '0':
+            return
+        else:
+            print(f"\n {R('[!] INVALID SELECTION')}")
+            time.sleep(0.8)
+
+def view_cookies():
+    refresh_screen()
+    print(f" {G('[!] LOADING COOKIES...')}")
+    nice_loader("LOADING")
+    
+    status, response = api_request("GET", "/user/cookies")
+    
+    if status == 200 and response.get('success'):
+        cookies = response.get('cookies', [])
+        
+        refresh_screen()
+        print(f" {G(f'[COOKIES] Total: {len(cookies)}')}")
+        print(LINE)
+        
+        if not cookies:
+            print(f" {C('No cookies stored yet.')}")
+        else:
+            for i, cookie_data in enumerate(cookies, 1):
+                status_display = G('[ACTIVE]') if cookie_data['status'] == 'active' else R('[RESTRICTED]')
+                
+                uid_text = f"UID: {cookie_data['uid']}"
+                print(f" {W}[{i:02d}]{RESET} {M(cookie_data['name'])} {W}({C(uid_text)}){RESET}")
+                cookie_preview = cookie_data['cookie'][:50] + "..." if len(cookie_data['cookie']) > 50 else cookie_data['cookie']
+                print(f"      Cookie: {C(cookie_preview)}")
+                print(f"      Added: {G(cookie_data['addedAt'])}")
+                print(f"      Status: {status_display}")
+                
+                if cookie_data['status'] == 'restricted':
+                    print(f"      {R('⚠ WARNING: This account is restricted!')}")
+                
+                print(LINE)
+        
+    else:
+        print(f" {R('[ERROR] Failed to load cookies')}")
+        print(LINE)
+    
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
+def add_cookie():
+    refresh_screen()
+    print(f" {G('[ADD COOKIE]')}")
+    print(LINE)
+    speak("Add cookie")
+    
+    display_prompt("COOKIE", C)
+    cookie = input().strip()
+    if not cookie:
+        return
+    
+    refresh_screen()
+    print(f" {G('[!] VALIDATING COOKIE...')}")
+    print(f" {C('This may take 10-15 seconds')}")
+    print(LINE)
+    speak("Validating cookie, please wait")
+    nice_loader("VALIDATING")
+    
+    status, response = api_request("POST", "/user/cookies", {"cookie": cookie})
+    
+    if status == 200 and isinstance(response, dict) and response.get('success'):
+        speak("Cookie added successfully")
+        print(f" {G('[SUCCESS]')} {G(response.get('message'))}")
+        print(LINE)
+        print(f" {C('Name:')} {M(response.get('name', 'Unknown'))}")
+        print(f" {C('UID:')} {C(response.get('uid', 'Unknown'))}")
+        status_display = G(response.get('status', 'unknown').upper()) if response.get('status') == 'active' else R(response.get('status', 'unknown').upper())
+        print(f" {C('Status:')} {status_display}")
+        
+        if response.get('restricted'):
+            print(LINE)
+            print(f" {R('⚠ WARNING: This account is RESTRICTED!')}")
+            print(f" {C('Restricted accounts may not be able to share posts.')}")
+        
+        if user_data:
+            user_data['cookieCount'] = response.get('totalCookies', 0)
+        
+        print(LINE)
+    else:
+        error_msg = response if isinstance(response, str) else response.get('message', 'Failed to add cookie') if isinstance(response, dict) else 'Failed to add cookie'
+        print(f" {R('[ERROR]')} {R(error_msg)}")
+        print(LINE)
+    
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
+def delete_cookie():
+    refresh_screen()
+    print(f" {G('[!] LOADING COOKIES...')}")
+    nice_loader("LOADING")
+    
+    status, response = api_request("GET", "/user/cookies")
+    
+    if status != 200 or not isinstance(response, dict) or not response.get('success'):
+        error_msg = response if isinstance(response, str) else 'Failed to load cookies'
+        print(f" {R('[ERROR]')} {R(error_msg)}")
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return
+    
+    cookies = response.get('cookies', [])
+    
+    if not cookies:
+        refresh_screen()
+        print(f" {C('No cookies to delete.')}")
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return
+    
+    refresh_screen()
+    print(f" {R('[DELETE COOKIE]')}")
+    print(LINE)
+    
+    for i, cookie_data in enumerate(cookies, 1):
+        status_indicator = R('[RESTRICTED]') if cookie_data.get('status') == 'restricted' else G('[ACTIVE]')
+        uid_text = f"UID: {cookie_data['uid']}"
+        print(f" {W}[{i}]{RESET} {M(cookie_data['name'])} {W}({C(uid_text)}){RESET} {status_indicator}")
+    
+    print(LINE)
+    
+    choice = input(f" {W}[{W}➤{W}]{RESET} {C('SELECT COOKIE NUMBER (0 to cancel)')} {W}➤{RESET} ").strip()
+    
+    if not choice or choice == '0':
+        return
+    
+    try:
+        cookie_index = int(choice) - 1
+        if cookie_index < 0 or cookie_index >= len(cookies):
+            print(f" {R('[ERROR] Invalid cookie number')}")
+            time.sleep(1)
+            return
+        
+        selected_cookie = cookies[cookie_index]
+    except:
+        print(f" {R('[ERROR] Invalid input')}")
+        time.sleep(1)
+        return
+    
+    refresh_screen()
+    speak("Deleting cookie")
+    nice_loader("DELETING")
+    
+    status, response = api_request("DELETE", f"/user/cookies/{selected_cookie['id']}")
+    
+    if status == 200 and isinstance(response, dict) and response.get('success'):
+        speak("Cookie deleted successfully")
+        print(f" {G('[SUCCESS] Cookie deleted!')}")
+        if user_data:
+            user_data['cookieCount'] = response.get('totalCookies', 0)
+    else:
+        error_msg = response if isinstance(response, str) else 'Failed to delete cookie'
+        print(f" {R('[ERROR]')} {R(error_msg)}")
+    
+    print(LINE)
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
+def delete_all_cookies():
+    refresh_screen()
+    print(f" {R('[DELETE ALL COOKIES]')}")
+    print(LINE)
+    
+    confirm = input(f" {W}[{W}➤{W}]{RESET} {R('Delete ALL cookies? This cannot be undone! (YES/NO)')} {W}➤{RESET} ").strip().upper()
+    
+    if confirm != 'YES':
+        return
+    
+    refresh_screen()
+    speak("Deleting all cookies")
+    nice_loader("DELETING")
+    
+    status, response = api_request("DELETE", "/user/cookies")
+    
+    if status == 200 and response.get('success'):
+        speak("All cookies deleted")
+        print(f" {G('[SUCCESS]')} {G(response.get('message'))}")
+        if user_data:
+            user_data['cookieCount'] = 0
+    else:
+        print(f" {R('[ERROR] Failed to delete cookies')}")
+    
+    print(LINE)
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
+def update_tool_logic():
+    print(f" {G('[!] CHECKING FOR UPDATES...')}")
+    speak("Checking for updates")
+    nice_loader("CHECKING")
+    
+    print(f" {G('[!] NEW VERSION FOUND! DOWNLOADING...')}")
+    speak("Downloading update")
+    nice_loader("UPDATING")
+    
+    print(f" {G('[!] UPDATE COMPLETE. RESTARTING...')}")
+    speak("Update complete, restarting")
+    time.sleep(1)
+    
+    os.execv(sys.executable, ['python'] + sys.argv)
+
+# ============ ADMIN PANEL FUNCTIONS ============
+
+def admin_panel():
+    while True:
+        refresh_screen()
+        print(f" {M('[ADMIN PANEL]')}")
+        print(LINE)
+        print(f" {W}[{W}1{W}]{RESET} {G('VIEW ALL USERS')}")
+        print(f" {W}[{W}2{W}]{RESET} {C('ACTIVATE USER (Auto: Full Access)')}")
+        print(f" {W}[{W}3{W}]{RESET} {R('DEACTIVATE USER')}")
+        print(f" {W}[{W}4{W}]{RESET} {R('DELETE USER')}")
+        print(f" {W}[{W}5{W}]{RESET} {R('DELETE ALL USERS')}")
+        print(f" {W}[{W}6{W}]{RESET} {C('VIEW ACTIVITY LOGS')}")
+        print(f" {W}[{W}7{W}]{RESET} {G('DASHBOARD STATS')}")
+        print(f" {W}[{W}8{W}]{RESET} {M('VIEW ALL ORDERS')}")
+        print(f" {W}[{W}0{W}]{RESET} {C('BACK')}")
+        print(LINE)
+        
+        choice = input(f" {W}[{W}➤{W}]{RESET} {C('CHOICE')} {W}➤{RESET} ").strip()
+        
+        if choice == '1':
+            view_all_users()
+        elif choice == '2':
+            activate_user()
+        elif choice == '3':
+            deactivate_user()
+        elif choice == '4':
+            delete_user()
+        elif choice == '5':
+            delete_all_users()
+        elif choice == '6':
+            view_activity_logs()
+        elif choice == '7':
+            dashboard_stats()
+        elif choice == '8':
+            view_all_orders()
+        elif choice == '0':
+            return
+        else:
+            print(f"\n {R('[!] INVALID SELECTION')}")
+            time.sleep(0.8)
+
+def view_all_users():
+    refresh_screen()
+    print(f" {G('[!] LOADING USERS...')}")
+    nice_loader("LOADING")
+    
+    status, response = api_request("GET", "/admin/users")
+    
+    if status == 200 and response.get('success'):
+        users = response.get('users', [])
+        
+        refresh_screen()
+        print(f" {G(f'[ALL USERS] Total: {len(users)}')}")
+        print(LINE)
+        
+        for i, user in enumerate(users, 1):
+            admin_badge = f" {M('[ADMIN]')}" if user.get('isAdmin') else ""
+            status_badge = G('[ACTIVE]') if user.get('isActive') else R('[INACTIVE]')
+            
+            print(f" {W}[{i:02d}]{RESET} {C(user['username'].upper())}{admin_badge} {status_badge}")
+            print(f"      Country: {G(user['country'])}")
+            print(f"      Shares: {G(str(user['totalShares']))}")
+            print(f"      Total Cookies: {C(str(user.get('cookieCount', 0)))}")
+            print(LINE)
+        
+    else:
+        print(f" {R('[ERROR] Failed to get users')}")
+        print(LINE)
+    
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
+def activate_user():
+    refresh_screen()
+    print(f" {G('[ACTIVATE USER]')}")
+    print(f" {C('Note: Activating will automatically grant FULL ACCESS')}")
+    print(LINE)
+    
+    status, response = api_request("GET", "/admin/users")
+    
+    if status != 200 or not response.get('success'):
+        print(f" {R('[ERROR] Failed to load users')}")
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return
+    
+    users = [u for u in response.get('users', []) if not u.get('isAdmin') and not u.get('isActive')]
+    
+    if not users:
+        print(f" {C('No inactive users to activate.')}")
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return
+    
+    print(f" {G('[SELECT USER TO ACTIVATE]')}")
+    print(LINE)
+    for i, user in enumerate(users, 1):
+        print(f" {W}[{i}]{RESET} {C(user['username'].upper())} - {R('[INACTIVE]')}")
+    print(LINE)
+    
+    user_choice = input(f" {W}[{W}➤{W}]{RESET} {C('SELECT USER NUMBER (0 to cancel)')} {W}➤{RESET} ").strip()
+    
+    if not user_choice or user_choice == '0':
+        return
+    
+    try:
+        user_index = int(user_choice) - 1
+        if user_index < 0 or user_index >= len(users):
+            print(f" {R('[ERROR] Invalid user number')}")
+            time.sleep(1)
+            return
+        
+        selected_user = users[user_index]
+    except:
+        print(f" {R('[ERROR] Invalid input')}")
+        time.sleep(1)
+        return
+    
+    refresh_screen()
+    speak("Activating user")
+    nice_loader("ACTIVATING")
+    
+    status, response = api_request("PUT", f"/admin/users/{selected_user['username']}/activate")
+    
+    if status == 200 and response.get('success'):
+        speak("User activated successfully")
+        print(f" {G('[SUCCESS] User activated successfully!')}")
+        print(f" {G('• Account Status: ACTIVE')}")
+        print(f" {G('• Access Level: FULL ACCESS')}")
+    else:
+        print(f" {R('[ERROR]')} {R(response.get('message', 'Failed to activate user'))}")
+    
+    print(LINE)
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
+def deactivate_user():
+    refresh_screen()
+    print(f" {R('[DEACTIVATE USER]')}")
+    print(f" {C('Note: Deactivated users can still manage cookies but cannot share')}")
+    print(LINE)
+    
+    status, response = api_request("GET", "/admin/users")
+    
+    if status != 200 or not response.get('success'):
+        print(f" {R('[ERROR] Failed to load users')}")
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return
+    
+    users = [u for u in response.get('users', []) if not u.get('isAdmin') and u.get('isActive')]
+    
+    if not users:
+        print(f" {C('No active users to deactivate.')}")
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return
+    
+    print(f" {G('[SELECT USER TO DEACTIVATE]')}")
+    print(LINE)
+    for i, user in enumerate(users, 1):
+        print(f" {W}[{i}]{RESET} {C(user['username'].upper())} - {G('[ACTIVE]')}")
+    print(LINE)
+    
+    user_choice = input(f" {W}[{W}➤{W}]{RESET} {C('SELECT USER NUMBER (0 to cancel)')} {W}➤{RESET} ").strip()
+    
+    if not user_choice or user_choice == '0':
+        return
+    
+    try:
+        user_index = int(user_choice) - 1
+        if user_index < 0 or user_index >= len(users):
+            print(f" {R('[ERROR] Invalid user number')}")
+            time.sleep(1)
+            return
+        
+        selected_user = users[user_index]
+    except:
+        print(f" {R('[ERROR] Invalid input')}")
+        time.sleep(1)
+        return
+    
+    refresh_screen()
+    speak("Deactivating user")
+    nice_loader("DEACTIVATING")
+    
+    status, response = api_request("PUT", f"/admin/users/{selected_user['username']}/deactivate")
+    
+    if status == 200 and response.get('success'):
+        speak("User deactivated")
+        print(f" {G('[SUCCESS] User deactivated successfully!')}")
+        print(f" {Y('• User can still manage cookies')}")
+        print(f" {R('• User cannot use sharing features')}")
+    else:
+        print(f" {R('[ERROR]')} {R(response.get('message', 'Failed to deactivate user'))}")
+    
+    print(LINE)
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
+def delete_user():
+    refresh_screen()
+    print(f" {R('[DELETE USER]')}")
+    print(LINE)
+    
+    status, response = api_request("GET", "/admin/users")
+    
+    if status != 200 or not response.get('success'):
+        print(f" {R('[ERROR] Failed to load users')}")
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return
+    
+    users = [u for u in response.get('users', []) if not u.get('isAdmin')]
+    
+    if not users:
+        print(f" {C('No users to delete.')}")
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return
+    
+    print(f" {G('[SELECT USER TO DELETE]')}")
+    print(LINE)
+    
+    for i, user in enumerate(users, 1):
+        status_badge = G('[ACTIVE]') if user.get('isActive') else R('[INACTIVE]')
+        print(f" {W}[{i:02d}]{RESET} {C(user['username'].upper())} - {status_badge}")
+    
+    print(f" {W}[00]{RESET} {C('CANCEL')}")
+    print(LINE)
+    
+    choice = input(f" {W}[{W}➤{W}]{RESET} {C('SELECT USER')} {W}➤{RESET} ").strip()
+    
+    if not choice or choice in ['0', '00']:
+        return
+    
+    try:
+        user_index = int(choice) - 1
+        if user_index < 0 or user_index >= len(users):
+            print(f" {R('[ERROR] Invalid selection')}")
+            time.sleep(1)
+            return
+        
+        selected_user = users[user_index]
+    except:
+        print(f" {R('[ERROR] Invalid input')}")
+        time.sleep(1)
+        return
+    
+    refresh_screen()
+    print(f" {R('[CONFIRM DELETION]')}")
+    print(LINE)
+    print(f" User: {C(selected_user['username'].upper())}")
+    print(f" Country: {G(selected_user['country'])}")
+    print(LINE)
+    
+    confirm = input(f" {W}[{W}➤{W}]{RESET} {R('Delete this user? This cannot be undone! (YES/NO)')} {W}➤{RESET} ").strip().upper()
+    
+    if confirm != 'YES':
+        return
+    
+    speak("Deleting user")
+    nice_loader("DELETING")
+    
+    status, response = api_request("DELETE", f"/admin/users/{selected_user['username']}")
+    
+    if status == 200 and response.get('success'):
+        speak("User deleted")
+        print(f" {G('[SUCCESS] User ' + selected_user['username'] + ' deleted successfully!')}")
+    else:
+        print(f" {R('[ERROR]')} {R(response.get('message', 'Failed to delete user'))}")
+    
+    print(LINE)
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
+def delete_all_users():
+    refresh_screen()
+    print(f" {R('[DELETE ALL USERS]')}")
+    print(LINE)
+    print(f" {R('⚠ WARNING: This will delete ALL non-admin users!')}")
+    print(f" {R('⚠ This action CANNOT be undone!')}")
+    print(LINE)
+    
+    confirm = input(f" {W}[{W}➤{W}]{RESET} {R('Type CONFIRM to proceed')} {W}➤{RESET} ").strip()
+    
+    if confirm != 'CONFIRM':
+        print(f" {C('[CANCELLED]')}")
+        time.sleep(1)
+        return
+    
+    refresh_screen()
+    speak("Deleting all users")
+    nice_loader("DELETING ALL USERS")
+    
+    status, response = api_request("DELETE", "/admin/users")
+    
+    if status == 200 and response.get('success'):
+        deleted_count = response.get('deletedCount', 0)
+        speak(f"Deleted {deleted_count} users")
+        print(f" {G(f'[SUCCESS] Deleted {deleted_count} user(s) successfully!')}")
+    else:
+        print(f" {R('[ERROR]')} {R(response.get('message', 'Failed to delete users'))}")
+    
+    print(LINE)
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
+def view_activity_logs():
+    refresh_screen()
+    print(f" {G('[!] LOADING ACTIVITY LOGS...')}")
+    nice_loader("LOADING")
+    
+    status, response = api_request("GET", "/admin/logs?limit=20")
+    
+    if status == 200 and response.get('success'):
+        logs = response.get('logs', [])
+        
+        refresh_screen()
+        print(f" {C('[ACTIVITY LOGS] Recent 20')}")
+        print(LINE)
+        
+        for log in logs:
+            action_display = G(log['action'].upper()) if log['action'] == 'login' else C(log['action'].upper())
+            print(f" {W}[{log['timestamp']}]{RESET}")
+            print(f" User: {C(log['username'].upper())} | Action: {action_display}")
+            if log.get('details'):
+                print(f" Details: {G(log['details'])}")
+            print(LINE)
+    else:
+        print(f" {R('[ERROR] Failed to load logs')}")
+        print(LINE)
+    
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
+def dashboard_stats():
+    refresh_screen()
+    print(f" {G('[!] LOADING DASHBOARD...')}")
+    nice_loader("LOADING")
+    
+    status, response = api_request("GET", "/admin/dashboard")
+    
+    if status == 200 and response.get('success'):
+        stats = response.get('stats', {})
+        
+        refresh_screen()
+        print(f" {G('[ADMIN DASHBOARD]')}")
+        print(LINE)
+        
+        print(f" {C('[USER STATISTICS]')}")
+        print(f" Total Users: {G(str(stats['totalUsers']))}")
+        print(f" Active Users: {G(str(stats['activeUsers']))}")
+        print(f" Inactive Users: {R(str(stats['inactiveUsers']))}")
+        print(LINE)
+        
+        print(f" {C('[ORDER STATISTICS]')}")
+        print(f" Pending Orders: {Y(str(stats.get('pendingOrders', 0)))}")
+        print(f" Completed Orders: {G(str(stats.get('completedOrders', 0)))}")
+        print(f" Total Revenue: {M('₱' + str(stats.get('totalRevenue', 0)))}")
+        print(LINE)
+        
+        print(f" {C('[ACTIVITY STATISTICS]')}")
+        print(f" Total Shares: {G(str(stats['totalShares']))}")
+        print(LINE)
+        
+        print(f" {C('[RECENT USERS]')}")
+        for user in stats.get('recentUsers', []):
+            status_badge = G('[ACTIVE]') if user.get('isActive') else R('[INACTIVE]')
+            print(f" {C(user['username'].upper())} - {status_badge} - {G(user['country'])}")
+        print(LINE)
+    else:
+        print(f" {R('[ERROR] Failed to load dashboard')}")
+        print(LINE)
+    
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
+def view_all_orders():
+    refresh_screen()
+    print(f" {G('[!] LOADING ORDERS...')}")
+    nice_loader("LOADING")
+    
+    status, response = api_request("GET", "/admin/orders")
+    
+    if status == 200 and response.get('success'):
+        orders = response.get('orders', [])
+        
+        refresh_screen()
+        print(f" {M('[ALL BOOSTER ORDERS]')} {C(f'Total: {len(orders)}')}")
+        print(LINE)
+        
+        if not orders:
+            print(f" {C('No orders found.')}")
+        else:
+            for order in orders:
+                status_colors = {
+                    'pending': Y,
+                    'processing': C,
+                    'completed': G,
+                    'cancelled': R,
+                    'refunded': M
+                }
+                status_color = status_colors.get(order['status'], C)
+                status_display = status_color(f"[{order['status'].upper()}]")
+                
+                print(f" {W}[{order['orderId']}]{RESET} {status_display}")
+                print(f"    Customer: {G(order['customerName'])}")
+                print(f"    Post: {C(order['postLink'][:50] + '...' if len(order['postLink']) > 50 else order['postLink'])}")
+                print(f"    Quantity: {M(str(order['quantity']))} | Amount: {G('₱' + str(order['amount']))}")
+                print(f"    Progress: {G(str(order['currentCount']))}/{M(str(order['quantity']))} ({Y(str(order['remainingCount']))} remaining)")
+                print(f"    Created: {C(order['createdAt'])}")
+                if order.get('notes'):
+                    print(f"    Notes: {Y(order['notes'])}")
+                print(LINE)
+    else:
+        print(f" {R('[ERROR] Failed to load orders')}")
+        print(LINE)
+    
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
+# ============ POST ID EXTRACTION ============
+
+def extract_post_id_from_link(link):
+    link = link.strip()
+    
+    if link.isdigit():
+        return link
+    
+    link = re.sub(r'^https?://', '', link)
+    link = re.sub(r'^(www\.|m\.)', '', link)
+    
+    patterns = [
+        r'facebook\.com/.*?/posts/(\d+)',
+        r'facebook\.com/.*?/photos/.*?/(\d+)',
+        r'facebook\.com/permalink\.php\?story_fbid=(\d+)',
+        r'facebook\.com/story\.php\?story_fbid=(\d+)',
+        r'facebook\.com/photo\.php\?fbid=(\d+)',
+        r'/(\d+)/?$'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, link)
+        if match:
+            return match.group(1)
+    
+    return link
+
+async def getid(session, link):
+    try:
+        async with session.post('https://id.traodoisub.com/api.php', data={"link": link}) as response:
+            rq = await response.json()
+            if 'success' in rq:
+                return rq["id"]
+            else:
+                print(f" {R('[ERROR] Incorrect post link!')}")
+                return None
+    except Exception as e:
+        print(f" {R(f'[ERROR] Failed to get post ID: {e}')}")
+        return None
+
+# ============ NORMAL SHARING (BUSINESS_LOCATIONS METHOD) ============
+
+def cookie_to_eaag(cookie):
+    """Normal method using business_locations endpoint"""
+    headers = {
+        'user-agent': 'Mozilla/5.0 (Linux; Android 8.1.0; MI 8 Build/OPM1.171019.011) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.86 Mobile Safari/537.36',
+        'referer': 'https://www.facebook.com/',
+        'host': 'business.facebook.com',
+        'origin': 'https://business.facebook.com',
+        'upgrade-insecure-requests': '1',
+        'accept-language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+        'cache-control': 'max-age=0',
+        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+        'content-type': 'text/html; charset=utf-8',
+        'cookie': cookie
+    }
+    
+    try:
+        response = requests.get('https://business.facebook.com/business_locations', headers=headers, timeout=15)
+        eaag_match = re.search(r'(EAAG\w+)', response.text)
+        if eaag_match:
+            return eaag_match.group(1)
+    except:
+        pass
+    return None
+
+# ============ SMM PANEL BOOST (CONTENT_MANAGEMENT METHOD) ============
+
+async def smm_get_token(session, cookie):
+    """SMM Panel method using content_management endpoint"""
+    headers = {
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36',
+        'sec-ch-ua': '"Google Chrome";v="107", "Chromium";v="107", "Not=A?Brand";v="24"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'sec-fetch-dest': 'document',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-site': 'none',
+        'sec-fetch-user': '?1',
+        'upgrade-insecure-requests': '1',
+        'cookie': cookie
+    }
+    
+    try:
+        async with session.get('https://business.facebook.com/content_management', headers=headers, timeout=15) as response:
+            data = await response.text()
+            match = re.search(r'EAAG(.*?)"', data)
+            if match:
+                return 'EAAG' + match.group(1)
+    except Exception as e:
+        print(f" {R(f'[ERROR] Token extraction failed: {e}')}")
+    return None
+
+async def smm_share(session, cookie, token, post_link, account_name, display_mode='detailed', target_shares=None):
+    """SMM Panel share method - NO DELAYS"""
+    global success_count
+    
+    headers = {
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36',
+        'sec-ch-ua': '"Google Chrome";v="107", "Chromium";v="107", "Not=A?Brand";v="24"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'accept-encoding': 'gzip, deflate',
+        'host': 'b-graph.facebook.com',
+        'cookie': cookie
+    }
+    
+    while True:
+        if target_shares and success_count >= target_shares:
+            break
+        
+        try:
+            url = f'https://b-graph.facebook.com/me/feed?link={post_link}&published=0&access_token={token}'
+            
+            async with session.post(url, headers=headers, timeout=10) as response:
+                data = await response.json()
+                
+                if 'id' in data:
+                    async with lock:
+                        success_count += 1
+                        current_count = success_count
+                    
+                    now = datetime.datetime.now()
+                    current_time = now.strftime("%H:%M:%S")
+                    
+                    if display_mode == 'minimal':
+                        if target_shares:
+                            sys.stdout.write(f"\r {apply_gradient(f'[{current_count}/{target_shares}]', 'green_yellow')} {apply_gradient(f'[{account_name}]', 'purple_cyan')}                    ")
+                        else:
+                            sys.stdout.write(f"\r {apply_gradient(f'[SUCCESS: {current_count}]', 'green_yellow')} {apply_gradient(f'[{account_name}]', 'purple_cyan')}                    ")
+                        sys.stdout.flush()
+                    else:
+                        if target_shares:
+                            print(f" {apply_gradient('[✓]', 'green_yellow')} {apply_gradient(current_time, 'blue_purple')} {W}|{RESET} {apply_gradient(account_name, 'purple_cyan')} {W}|{RESET} {apply_gradient(f'{current_count}/{target_shares}', 'green_yellow')}")
+                        else:
+                            print(f" {apply_gradient('[✓]', 'green_yellow')} {apply_gradient(current_time, 'blue_purple')} {W}|{RESET} {apply_gradient(account_name, 'purple_cyan')} {W}|{RESET} {apply_gradient(f'Total: {current_count}', 'green_yellow')}")
+                else:
+                    error_msg = data.get('error', {}).get('message', 'Unknown error')
+                    if display_mode != 'minimal':
+                        print(f" {apply_gradient('[✗]', 'red_orange')} {apply_gradient(current_time, 'blue_purple')} {W}|{RESET} {apply_gradient(account_name, 'purple_cyan')} {W}|{RESET} {apply_gradient(error_msg[:50], 'red_orange')}")
+                    break
+        
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            if display_mode != 'minimal':
+                current_time = datetime.datetime.now().strftime("%H:%M:%S")
+                print(f" {apply_gradient('[✗]', 'red_orange')} {apply_gradient(current_time, 'blue_purple')} {W}|{RESET} {apply_gradient(account_name, 'purple_cyan')} {W}|{RESET} {apply_gradient(str(e)[:50], 'red_orange')}")
+            break
+
+async def share_with_eaag(session, cookie, token, post_id):
+    headers = {
+        'user-agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Mobile Safari/537.36',
+        'sec-ch-ua': '"Google Chrome";v="107", "Chromium";v="107", "Not=A?Brand";v="24"',
+        'sec-ch-ua-mobile': '?1',
+        'sec-ch-ua-platform': '"Android"',
+        'sec-fetch-dest': 'document',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-site': 'none',
+        'sec-fetch-user': '?1',
+        'upgrade-insecure-requests': '1',
+        'accept-encoding': 'gzip, deflate',
+        'host': 'b-graph.facebook.com',
+        'cookie': cookie
+    }
+    
+    try:
+        url = f'https://b-graph.facebook.com/me/feed?link=https://mbasic.facebook.com/{post_id}&published=0&access_token={token}'
+        async with session.post(url, headers=headers, timeout=10) as response:
+            json_data = await response.json()
+            
+            if 'id' in json_data:
+                return True, json_data.get('id', 'N/A')
+            else:
+                error_msg = json_data.get('error', {}).get('message', 'Unknown error')
+                return False, error_msg
+    except Exception as e:
+        return False, str(e)
+
+async def share_loop(session, cookie, token, post_id, account_name, account_uid, cookie_id, display_mode='detailed', target_shares=None):
+    global success_count, current_order
+    
+    while True:
+        if target_shares and success_count >= target_shares:
+            break
+        
+        try:
+            now = datetime.datetime.now()
+            current_time = now.strftime("%H:%M:%S")
+            
+            is_success, result = await share_with_eaag(session, cookie, token, post_id)
+            
+            if is_success:
+                async with lock:
+                    success_count += 1
+                    current_count = success_count
+                
+                if display_mode == 'minimal':
+                    if target_shares:
+                        sys.stdout.write(f"\r {apply_gradient(f'[{current_count}/{target_shares}]', 'green_yellow')} {apply_gradient(f'[UID: {account_uid}]', 'purple_cyan')}                    ")
+                    else:
+                        sys.stdout.write(f"\r {apply_gradient(f'[SUCCESS: {current_count}]', 'green_yellow')} {apply_gradient(f'[UID: {account_uid}]', 'purple_cyan')}                    ")
+                    sys.stdout.flush()
+                else:
+                    if target_shares:
+                        print(f" {apply_gradient('[✓]', 'green_yellow')} {apply_gradient(current_time, 'blue_purple')} {W}|{RESET} {apply_gradient(f'UID: {account_uid}', 'purple_cyan')} {W}|{RESET} {apply_gradient(f'{current_count}/{target_shares}', 'green_yellow')}")
+                    else:
+                        print(f" {apply_gradient('[✓]', 'green_yellow')} {apply_gradient(current_time, 'blue_purple')} {W}|{RESET} {apply_gradient(f'UID: {account_uid}', 'purple_cyan')} {W}|{RESET} {apply_gradient(f'Total: {current_count}', 'green_yellow')}")
+                
+            else:
+                if display_mode != 'minimal':
+                    error_message = result[:40]
+                    print(f" {apply_gradient('[✗]', 'red_orange')} {apply_gradient(current_time, 'blue_purple')} {W}|{RESET} {apply_gradient(f'UID: {account_uid}', 'purple_cyan')} {W}|{RESET} {apply_gradient(error_message, 'red_orange')}")
+                break
+        
+        except asyncio.CancelledError:
+            break
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            error_msg = str(e)
+            if "asyncio" not in error_msg.lower() and "event" not in error_msg.lower():
+                if display_mode != 'minimal':
+                    print(f" {apply_gradient('[✗]', 'red_orange')} {apply_gradient(datetime.datetime.now().strftime('%H:%M:%S'), 'blue_purple')} {W}|{RESET} {apply_gradient(f'UID: {account_uid}', 'purple_cyan')} {W}|{RESET} {apply_gradient(error_msg[:40], 'red_orange')}")
+            break
+
+async def auto_share_main(link_or_id, selected_cookies, order_info=None):
+    global success_count, current_order
+    success_count = 0
+    current_order = order_info
+    target_shares = order_info.get('quantity') if order_info else None
+    
+    start_time = datetime.datetime.now()
+    
+    refresh_screen()
+    print(f" {C('[!] CONVERTING SELECTED ACCOUNTS...')}")
+    nice_loader("CONVERTING")
+    
+    eaag_tokens = []
+    
+    for cookie_data in selected_cookies:
+        token = cookie_to_eaag(cookie_data['cookie'])
+        if token:
+            eaag_tokens.append({
+                'id': cookie_data['id'],
+                'cookie': cookie_data['cookie'],
+                'token': token,
+                'name': cookie_data['name'],
+                'uid': cookie_data['uid'],
+                'status': cookie_data.get('status', 'active')
+            })
+            status_indicator = R('[RESTRICTED]') if cookie_data.get('status') == 'restricted' else G('[ACTIVE]')
+            uid_text = f"UID: {cookie_data['uid']}"
+            print(f" {G('✓')} {C(cookie_data['name'])} {W}({C(uid_text)}){RESET} {status_indicator}")
+        else:
+            print(f" {R('✗')} {C(cookie_data['name'])} {R('Failed to convert account')}")
+    
+    if not eaag_tokens:
+        print(f" {R('[ERROR] No valid accounts converted!')}")
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return start_time
+    
+    async with aiohttp.ClientSession() as session:
+        post_id = extract_post_id_from_link(link_or_id)
+        
+        if not post_id.isdigit():
+            refresh_screen()
+            print(f" {G('[!] EXTRACTING POST ID FROM LINK...')}")
+            nice_loader("EXTRACTING")
+            
+            post_id = await getid(session, link_or_id)
+            if not post_id:
+                print(f" {R('[ERROR] Failed to get post ID')}")
+                input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+                return start_time
+    
+    display_mode = select_progress_display()
+    
+    refresh_screen()
+    print(f" {G(f'[SUCCESS] Converted {len(eaag_tokens)} accounts')}")
+    print(LINE)
+    print(f" {C('Post ID:')} {G(post_id)}")
+    
+    if order_info:
+        print(LINE)
+        print(f" {M('[BOOSTER ORDER DETAILS]')}")
+        print(f" {C('Order ID:')} {G(order_info.get('orderId', 'N/A'))}")
+        print(f" {C('Customer:')} {G(order_info.get('customerName', 'N/A'))}")
+        print(f" {C('Quantity:')} {M(str(order_info.get('quantity', 0)))}")
+        print(f" {C('Amount:')} {G('₱' + str(order_info.get('amount', 0)))}")
+        if order_info.get('notes'):
+            print(f" {C('Notes:')} {Y(order_info.get('notes'))}")
+    
+    print(LINE)
+    
+    async with aiohttp.ClientSession() as session:
+        print(f" {M('[AUTO SHARE CONFIGURATION]')}")
+        print(LINE)
+        print(f" {C('Mode:')} {G('NORMAL SHARING')}")
+        print(f" {C('Total Accounts:')} {G(str(len(eaag_tokens)))}")
+        print(f" {C('Share Speed:')} {G('MAXIMUM (ZERO DELAYS)')}")
+        if target_shares:
+            print(f" {C('Target Shares:')} {M(str(target_shares))}")
+        print(LINE)
+        print(f" {G('[!] STARTING AUTO SHARE...')}")
+        print(f" {C('[TIP] Press Ctrl+C to stop')}")
+        print(LINE)
+        
+        tasks = []
+        for acc in eaag_tokens:
+            task = asyncio.create_task(share_loop(
+                session,
+                acc['cookie'],
+                acc['token'],
+                post_id,
+                acc['name'],
+                acc['uid'],
+                acc['id'],
+                display_mode,
+                target_shares
+            ))
+            tasks.append(task)
+        
+        print(f" {G(f'[STARTED] Running {len(tasks)} parallel share threads at MAXIMUM SPEED...')}")
+        print(LINE)
+        
+        try:
+            if target_shares:
+                while success_count < target_shares:
+                    await asyncio.sleep(0.5)
+                    if all(task.done() for task in tasks):
+                        break
+                
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+            else:
+                await asyncio.gather(*tasks, return_exceptions=True)
+        except Exception as e:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+    
+    return start_time
+
+# ============ SMM PANEL BOOST MAIN ============
+
+async def smm_boost_main(selected_cookies, post_link, share_count, order_info=None):
+    """SMM Panel Boost with multiple cookies"""
+    global success_count
+    success_count = 0
+    
+    start_time = datetime.datetime.now()
+    
+    async with aiohttp.ClientSession() as session:
+        print(f" {G('[!] CONVERTING SELECTED ACCOUNTS...')}")
+        nice_loader("CONVERTING")
+        
+        valid_tokens = []
+        
+        for cookie_data in selected_cookies:
+            token = await smm_get_token(session, cookie_data['cookie'])
+            
+            if token:
+                valid_tokens.append({
+                    'cookie': cookie_data['cookie'],
+                    'token': token,
+                    'name': cookie_data['name']
+                })
+                print(f" {G('✓')} {C(cookie_data['name'])}")
+            else:
+                print(f" {R('✗')} {C(cookie_data['name'])} {R('Failed to convert account')}")
+        
+        if not valid_tokens:
+            print(f" {R('[ERROR] No valid accounts converted!')}")
+            print(f" {C('Cookies may be invalid or expired.')}")
+            return start_time
+        
+        print(LINE)
+        print(f" {G(f'[SUCCESS] Converted {len(valid_tokens)} account(s)!')}")
+        print(LINE)
+        
+        display_mode = select_progress_display()
+        
+        refresh_screen()
+        print(f" {M('[SMM PANEL — MOST RECOMMENDED]')}")
+        print(LINE)
+        print(f" {C('Method:')} {M('SMM PANEL BOOST')}")
+        print(f" {C('Post Link:')} {G(post_link[:50] + '...' if len(post_link) > 50 else post_link)}")
+        print(f" {C('Target Shares:')} {M(str(share_count))}")
+        print(f" {C('Speed:')} {G('INSTANT (NO DELAYS)')}")
+        print(f" {C('Total Cookies:')} {G(str(len(valid_tokens)))}")
+        
+        if order_info:
+            print(LINE)
+            print(f" {M('[ORDER DETAILS]')}")
+            print(f" {C('Order ID:')} {G(order_info.get('orderId', 'N/A'))}")
+            print(f" {C('Customer:')} {G(order_info.get('customerName', 'N/A'))}")
+            print(f" {C('Amount:')} {G('₱' + str(order_info.get('amount', 0)))}")
+        
+        print(LINE)
+        print(f" {G('[!] STARTING SMM PANEL BOOST...')}")
+        print(f" {C('[TIP] Press Ctrl+C to stop')}")
+        print(LINE)
+        
+        tasks = []
+        for token_data in valid_tokens:
+            task = asyncio.create_task(smm_share(
+                session,
+                token_data['cookie'],
+                token_data['token'],
+                post_link,
+                token_data['name'],
+                display_mode,
+                share_count
+            ))
+            tasks.append(task)
+        
+        print(f" {G(f'[STARTED] Running {len(tasks)} parallel share threads...')}")
+        print(LINE)
+        
+        try:
+            while success_count < share_count:
+                await asyncio.sleep(0.5)
+                if all(task.done() for task in tasks):
+                    break
+            
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+        except Exception as e:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+        
+        return start_time
+
+def format_datetime_readable(dt):
+    """Format datetime to readable format"""
+    months = ['January', 'February', 'March', 'April', 'May', 'June',
+              'July', 'August', 'September', 'October', 'November', 'December']
+    
+    month_name = months[dt.month - 1]
+    day = dt.day
+    year = dt.year
+    hours = dt.hour
+    minutes = dt.minute
+    seconds = dt.second
+    
+    return f"{month_name} {day}, {year} {hours}Hours {minutes}Minutes {seconds}Sec"
+
+def generate_order_receipt(order_info, shares_completed, start_time, end_time):
+    """Generate a receipt for completed order with banner"""
+    is_completed = shares_completed >= order_info.get('quantity', 0)
+    status_text = "Completed ✓" if is_completed else "Partial"
+    
+    clear()
+    
+    banner_art = """
+    ╦═╗╔═╗╦ ╦╔╦╗╔═╗╔═╗╦  ╔═╗
+    ╠╦╝╠═╝║║║ ║ ║ ║║ ║║  ╚═╗
+    ╩╚═╩  ╚╩╝ ╩ ╚═╝╚═╝╩═╝╚═╝
+    """
+    print(apply_gradient(banner_art, 'purple_cyan'))
+    print(LINE)
+    print(f" {W}[{RESET}•{W}]{RESET} {C('DEVELOPER')}     {W}➤{RESET} {G('KEN DRICK')}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('GITHUB')}        {W}➤{RESET} {G('RYO GRAHHH')}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('FACEBOOK')}      {W}➤{RESET} {G('facebook.com/ryoevisu')}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('TOOL NAME')}     {W}➤{RESET} {R('[ RPWTOOLS ]')}")
+    print(LINE)
+    
+    print(f" {M('[ORDER RECEIPT — SMM PANEL BOOST]')}")
+    print(LINE)
+    print(f" {W}[{RESET}•{W}]{RESET} {C('ORDER ID')}          {W}➤{RESET} {G(order_info.get('orderId', 'N/A'))}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('CUSTOMER NAME')}     {W}➤{RESET} {G(order_info.get('customerName', 'N/A'))}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('POST LINK')}         {W}➤{RESET} {G(order_info.get('postLink', 'N/A')[:50])}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('REQUEST QUANTITY')}  {W}➤{RESET} {M(str(order_info.get('quantity', 0)))}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('STATUS')}            {W}➤{RESET} {G(status_text) if is_completed else R(status_text)}")
+    print(f" {W}[{RESET}•{W}]{RESET} {C('AMOUNT')}            {W}➤{RESET} {Y('₱' + str(order_info.get('amount', 0)))}")
+    print(LINE)
+    
+    if is_completed:
+        print(f" {G('Thank you for your avail! Your order has been completed 😊')}")
+    else:
+        remaining = order_info.get('quantity', 0) - shares_completed
+        print(f" {Y(f'Order partially completed. Remaining: {remaining} shares')}")
+    
+    print(LINE)
+    print(f" {C('Powered by RPWTOOLS — SMM Panel Boost System')}")
+    print(f" {C('GitHub: RYO GRAHHH | Facebook: facebook.com/ryoevisu')}")
+    print(LINE)
+
+def select_cookies_for_sharing():
+    refresh_screen()
+    print(f" {G('[!] LOADING COOKIES FROM DATABASE...')}")
+    nice_loader("LOADING")
+    
+    status, response = api_request("GET", "/user/cookies")
+    
+    if status != 200 or not response.get('success'):
+        print(f" {R('[ERROR] Failed to load cookies')}")
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return None
+    
+    cookies = response.get('cookies', [])
+    
+    if not cookies:
+        print(f" {R('[ERROR] No cookies stored in database')}")
+        print(f" {C('[TIP] Use option to add cookies first')}")
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return None
+    
+    refresh_screen()
+    print(f" {C('[SELECT COOKIES FOR AUTO SHARE]')}")
+    print(LINE)
+    print(f" {W}[{RESET}{BG_G}{W}ALL{RESET}{W}]{RESET} {G('USE ALL COOKIES')}")
+    print(LINE)
+    
+    for i, cookie_data in enumerate(cookies, 1):
+        letter = chr(64 + i) if i <= 26 else str(i)
+        status_indicator = R('[RESTRICTED]') if cookie_data.get('status') == 'restricted' else G('[ACTIVE]')
+        uid_text = f"UID: {cookie_data['uid']}"
+        print(f" {W}[{RESET}{BG_C}{W}{i:02d}{RESET}{W}/{RESET}{BG_C}{W}{letter}{RESET}{W}]{RESET} {C(cookie_data['name'])} {W}({C(uid_text)}){RESET} {status_indicator}")
+    
+    print(LINE)
+    print(f" {C('[TIP] Enter numbers separated by commas (e.g., 1,2,3) or type ALL')}")
+    print(LINE)
+    
+    selection = input(f" {W}[{W}➤{W}]{RESET} {C('SELECT')} {W}➤{RESET} ").strip().upper()
+    
+    if not selection:
+        return None
+    
+    selected_cookies = []
+    
+    if selection == 'ALL':
+        selected_cookies = cookies
+    else:
+        try:
+            parts = selection.replace(',', ' ').split()
+            for part in parts:
+                if part.isdigit():
+                    idx = int(part) - 1
+                    if 0 <= idx < len(cookies):
+                        selected_cookies.append(cookies[idx])
+                elif len(part) == 1 and part.isalpha():
+                    idx = ord(part) - 65
+                    if 0 <= idx < len(cookies):
+                        selected_cookies.append(cookies[idx])
+        except:
+            print(f" {R('[ERROR] Invalid selection')}")
+            time.sleep(1)
+            return None
+    
+    if not selected_cookies:
+        print(f" {R('[ERROR] No valid cookies selected')}")
+        time.sleep(1)
+        return None
+    
+    refresh_screen()
+    print(f" {C('[CONFIRM SELECTION]')}")
+    print(LINE)
+    print(f" {C('Selected ' + str(len(selected_cookies)) + ' cookie(s):')}")
+    for cookie_data in selected_cookies:
+        status_indicator = R('[RESTRICTED]') if cookie_data.get('status') == 'restricted' else G('[ACTIVE]')
+        uid_text = f"UID: {cookie_data['uid']}"
+        print(f"   • {C(cookie_data['name'])} {W}({C(uid_text)}){RESET} {status_indicator}")
+    print(LINE)
+    
+    restricted_count = sum(1 for c in selected_cookies if c.get('status') == 'restricted')
+    if restricted_count > 0:
+        print(f" {R('⚠ WARNING: ' + str(restricted_count) + ' restricted account(s) detected!')}")
+        print(f" {C('Restricted accounts may not be able to share posts.')}")
+        print(LINE)
+    
+    confirm = input(f" {W}[{W}➤{W}]{RESET} {G('Confirm? (Y/N)')} {W}➤{RESET} ").strip().upper()
+    
+    if confirm == 'Y':
+        return selected_cookies
+    else:
+        return None
+
+def start_auto_share():
+    """Normal unlimited sharing"""
+    global success_count, current_order
+    
+    if not user_data.get('isActive') and not user_data.get('isAdmin'):
+        refresh_screen()
+        print(f" {R('[ACCESS DENIED]')}")
+        speak("Access denied, account not activated")
+        print(LINE)
+        print(f" {R('Your account is not activated.')}")
+        print(f" {C('Please contact an administrator to activate your account.')}")
+        print(LINE)
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return
+    
+    refresh_screen()
+    print(f" {C('[!] AUTO SHARE - NORMAL ACCOUNTS (UNLIMITED)')}")
+    print(LINE)
+    speak("Auto share, normal accounts")
+    print(f" {G('[✓] INFORMATION:')}")
+    print(f" {C('• Make sure your post is set to PUBLIC')}")
+    print(f" {C('• Shares run at MAXIMUM SPEED (zero delays)')}")
+    print(LINE)
+    
+    display_prompt("POST LINK OR ID", C)
+    link_or_id = input().strip()
+    
+    if not link_or_id:
+        return
+    
+    selected_cookies = select_cookies_for_sharing()
+    
+    if not selected_cookies:
+        return
+    
+    try:
+        start_time = asyncio.run(auto_share_main(link_or_id, selected_cookies, None))
+        
+        end_time = datetime.datetime.now()
+        
+        refresh_screen()
+        speak("Auto share completed successfully")
+        print(f" {G('[!] AUTO SHARE COMPLETED')}")
+        stop_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f" {C('[!] Stop Time: ' + stop_time)}")
+        print(f" {G('[!] Total Successful Shares: ' + str(success_count))}")
+        print(LINE)
+        
+        if success_count > 0:
+            api_request("POST", "/share/complete", {"totalShares": success_count})
+            print(f" {G('[!] Shares recorded to your account')}")
+        
+    except KeyboardInterrupt:
+        end_time = datetime.datetime.now()
+        
+        refresh_screen()
+        speak("Auto share stopped by user")
+        print(f" {C('[!] AUTO SHARE STOPPED BY USER')}")
+        stop_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f" {C('[!] Stop Time: ' + stop_time)}")
+        print(f" {G('[!] Total Successful Shares: ' + str(success_count))}")
+        print(LINE)
+        
+        if success_count > 0:
+            api_request("POST", "/share/complete", {"totalShares": success_count})
+            print(f" {G('[!] Shares recorded to your account')}")
+    
+    except Exception as e:
+        refresh_screen()
+        print(f" {R('[ERROR] An unexpected error occurred:')}")
+        print(f" {R(str(e))}")
+    
+    print(LINE)
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
+def start_smm_panel_boost():
+    """SMM Panel Boost with order system"""
+    global success_count
+    
+    if not user_data.get('isActive') and not user_data.get('isAdmin'):
+        refresh_screen()
+        print(f" {R('[ACCESS DENIED]')}")
+        speak("Access denied, account not activated")
+        print(LINE)
+        print(f" {R('Your account is not activated.')}")
+        print(f" {C('Please contact an administrator to activate your account.')}")
+        print(LINE)
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return
+    
+    refresh_screen()
+    print(f" {M('[SMM PANEL — MOST RECOMMENDED]')}")
+    print(LINE)
+    speak("SMM Panel, most recommended")
+    print(f" {G('[✓] INFORMATION:')}")
+    print(f" {C('• NO DELAYS - Instant sharing')}")
+    print(f" {C('• Creates order for tracking')}")
+    print(f" {C('• Supports multiple cookies')}")
+    print(LINE)
+    print(f" {R('[NOT SUPPORTED POST LINK FORMATS]')}")
+    print(f" {R('• https://www.facebook.com/share/p/XXXXX/')}")
+    print(f" {R('• https://www.facebook.com/share/XXXXX/')}")
+    print(LINE)
+    print(f" {G('[All other Facebook post link formats are supported]')}")
+    print(LINE)
+    
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+    
+    refresh_screen()
+    print(f" {M('[CREATE SMM BOOST ORDER]')}")
+    print(LINE)
+    speak("Create SMM boost order")
+    
+    display_prompt("CUSTOMER NAME", C)
+    customer_name = input().strip()
+    if not customer_name:
+        speak("Customer name is required")
+        print(f" {R('[ERROR] Customer name is required')}")
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return
+    
+    display_prompt("POST LINK", C)
+    post_link = input().strip()
+    if not post_link:
+        speak("Post link is required")
+        print(f" {R('[ERROR] Post link is required')}")
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return
+    
+    if not validate_smm_post_link(post_link):
+        refresh_screen()
+        print(f" {R('[LINK FORMAT NOT SUPPORTED]')}")
+        speak("Link format not supported")
+        print(LINE)
+        print(f" {R('⚠ This type of link format is NOT SUPPORTED!')}")
+        print(LINE)
+        print(f" {R('[NOT SUPPORTED FORMATS]')}")
+        print(f" {R('• https://www.facebook.com/share/p/XXXXX/')}")
+        print(f" {R('• https://www.facebook.com/share/XXXXX/')}")
+        print(LINE)
+        print(f" {G('[SUPPORTED]')}")
+        print(f" {G('All other Facebook post link formats')}")
+        print(LINE)
+        print(f" {Y('ℹ Contact admin for guide on getting the correct link format.')}")
+        print(LINE)
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return
+    
+    display_prompt("SHARE COUNT", C)
+    share_count = input().strip()
+    if not share_count or not share_count.isdigit():
+        speak("Valid share count is required")
+        print(f" {R('[ERROR] Valid share count is required')}")
+        input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+        return
+    
+    share_count = int(share_count)
+    
+    display_prompt("AMOUNT (₱)", C)
+    amount = input().strip()
+    if not amount:
+        amount = '0'
+    
+    display_prompt("NOTES (optional)", C)
+    notes = input().strip()
+    
+    selected_cookies = select_cookies_for_sharing()
+    
+    if not selected_cookies:
+        return
+    
+    refresh_screen()
+    speak("Creating order, please wait")
+    nice_loader("CREATING ORDER")
+    
+    max_retries = 5
+    for attempt in range(max_retries):
+        timestamp_suffix = str(int(time.time()))[-4:] if attempt > 0 else ""
+        custom_order_id = f"RPW-{customer_name.upper().replace(' ', '')}{timestamp_suffix}"
+        
+        status, response = api_request("POST", "/admin/orders", {
+            "customOrderId": custom_order_id,
+            "customerName": customer_name,
+            "postLink": post_link,
+            "quantity": share_count,
+            "amount": float(amount) if amount else 0,
+            "notes": notes
+        })
+        
+        if status == 201 and response.get('success'):
+            break
+        
+        if 'duplicate' in str(response.get('message', '')).lower() or 'already' in str(response.get('message', '')).lower():
+            if attempt < max_retries - 1:
+                print(f" {Y('[!] Order ID already exists, generating new ID...')}")
+                time.sleep(0.5)
+                continue
+            else:
+                speak("Failed to create order after retries")
+                print(f" {R('[ERROR] Failed to create unique order ID after multiple attempts')}")
+                input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+                return
+        else:
+            speak("Failed to create order")
+            print(f" {R('[ERROR]')} {R(response.get('message', 'Failed to create order') if isinstance(response, dict) else 'Failed to create order')}")
+            input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+            return
+    
+    order_info = response.get('order', {})
+    order_info['quantity'] = share_count
+    order_info['postLink'] = post_link
+    order_info['notes'] = notes
+    
+    speak("Order created successfully")
+    print(f" {G('[SUCCESS] Order created!')}")
+    print(f" {C('Order ID:')} {G(order_info.get('orderId', 'N/A'))}")
+    print(LINE)
+    
+    try:
+        start_time = asyncio.run(smm_boost_main(selected_cookies, post_link, share_count, order_info))
+        
+        end_time = datetime.datetime.now()
+        
+        speak("Order completed, generating receipt")
+        generate_order_receipt(order_info, success_count, start_time, end_time)
+        
+        status, response = api_request("PUT", f"/admin/orders/{order_info.get('orderId')}", {
+            "status": "completed" if success_count >= share_count else "processing",
+            "currentCount": success_count
+        })
+        
+        if status == 200:
+            print(f" {G('[✓] Order status updated in database')}")
+        
+        if success_count > 0:
+            api_request("POST", "/share/complete", {"totalShares": success_count})
+            print(f" {G('[!] Shares recorded to your account')}")
+        
+    except KeyboardInterrupt:
+        end_time = datetime.datetime.now()
+        
+        generate_order_receipt(order_info, success_count, start_time, end_time)
+        
+        status, response = api_request("PUT", f"/admin/orders/{order_info.get('orderId')}", {
+            "status": "processing",
+            "currentCount": success_count
+        })
+        
+        if status == 200:
+            print(f" {Y('[!] Order marked as PROCESSING (partial completion)')}")
+        
+        if success_count > 0:
+            api_request("POST", "/share/complete", {"totalShares": success_count})
+            print(f" {G('[!] Shares recorded to your account')}")
+    
+    except Exception as e:
+        refresh_screen()
+        print(f" {R('[ERROR] An unexpected error occurred:')}")
+        print(f" {R(str(e))}")
+    
+    print(LINE)
+    input(f"\n {G('[PRESS ENTER TO CONTINUE]')}")
+
+# ============ MAIN FUNCTION ============
+
+def main():
+    global user_token, user_data
+    
+    check_version()
+    
+    clear()
+    print(f" {G('[!] WELCOME TO RPWTOOLS BY KENDRICK')}")
+    speak("Welcome to RPW Tools by Kendrick")
+    time.sleep(1)
+    
+    while True:
+        refresh_screen()
+        
+        prompt = f" {W}[{W}➤{W}]{RESET} {C('CHOICE')} {W}➤{RESET} "
+        try:
+            choice = input(prompt).upper()
+        except KeyboardInterrupt:
+            sys.exit()
+
+        refresh_screen()
+
+        if not user_token:
+            if choice in ['1', '01', 'A']:
+                login_user()
+            elif choice in ['2', '02', 'B']:
+                register_user()
+            elif choice in ['0', '00', 'X']:
+                print(f"\n {R('[!] EXITING TOOL...')}")
+                sys.exit()
+            else:
+                print(f"\n {R('[!] INVALID SELECTION')}")
+                time.sleep(0.8)
+        
+        elif user_data and user_data.get('isAdmin'):
+            if choice in ['1', '01', 'A']:
+                start_auto_share()
+            elif choice in ['2', '02', 'B']:
+                start_smm_panel_boost()
+            elif choice in ['3', '03', 'C']:
+                manage_cookies()
+            elif choice in ['4', '04', 'D']:
+                show_user_stats()
+            elif choice in ['5', '05', 'E']:
+                admin_panel()
+            elif choice in ['6', '06', 'F']:
+                update_tool_logic()
+            elif choice in ['0', '00', 'X']:
+                print(f"\n {C('[!] LOGGING OUT...')}")
+                user_token = None
+                user_data = None
+                time.sleep(1)
+            else:
+                print(f"\n {R('[!] INVALID SELECTION')}")
+                time.sleep(0.8)
+        
+        elif user_data and user_data.get('isActive'):
+            if choice in ['1', '01', 'A']:
+                start_auto_share()
+            elif choice in ['2', '02', 'B']:
+                start_smm_panel_boost()
+            elif choice in ['3', '03', 'C']:
+                manage_cookies()
+            elif choice in ['4', '04', 'D']:
+                show_user_stats()
+            elif choice in ['5', '05', 'E']:
+                update_tool_logic()
+            elif choice in ['0', '00', 'X']:
+                print(f"\n {C('[!] LOGGING OUT...')}")
+                user_token = None
+                user_data = None
+                time.sleep(1)
+            else:
+                print(f"\n {R('[!] INVALID SELECTION')}")
+                time.sleep(0.8)
+        
+        else:
+            if choice in ['1', '01', 'A']:
+                manage_cookies()
+            elif choice in ['2', '02', 'B']:
+                show_user_stats()
+            elif choice in ['0', '00', 'X']:
+                print(f"\n {C('[!] LOGGING OUT...')}")
+                user_token = None
+                user_data = None
+                time.sleep(1)
+            else:
+                print(f"\n {R('[!] INVALID SELECTION')}")
+                time.sleep(0.8)
+
+if __name__ == "__main__":
+    main()
