@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Facebook Account Live Checker - m.facebook.com Method
-Most reliable single method for checking if accounts are live
+Simple and reliable checker for live/dead accounts
 """
 
 import os
@@ -41,9 +41,7 @@ def linex():
 
 
 def extract_account_name(html_content):
-    """
-    Extract account name from HTML content using multiple patterns
-    """
+    """Extract account name from HTML content"""
     try:
         # Pattern 1: From title tag
         if '<title>' in html_content:
@@ -60,34 +58,11 @@ def extract_account_name(html_content):
                 return title.strip()
         
         # Pattern 2: From meta tags
-        meta_patterns = [
-            r'<meta property="og:title" content="(.*?)"',
-            r'<meta name="description" content="(.*?)"',
-            r'<meta property="al:android:url" content=".*?u=(\d+)"'
-        ]
-        
-        for pattern in meta_patterns:
-            match = re.search(pattern, html_content, re.IGNORECASE)
-            if match:
-                name = match.group(1)
-                if name and len(name) > 0 and 'facebook' not in name.lower():
-                    return name.strip()
-        
-        # Pattern 3: From profile header
-        header_patterns = [
-            r'<h1[^>]*>(.*?)</h1>',
-            r'<h3[^>]*class="[^"]*profpic[^"]*"[^>]*>(.*?)</h3>',
-        ]
-        
-        for pattern in header_patterns:
-            match = re.search(pattern, html_content, re.IGNORECASE | re.DOTALL)
-            if match:
-                name = match.group(1)
-                # Clean HTML tags
-                name = re.sub(r'<[^>]+>', '', name)
-                name = name.strip()
-                if name and len(name) > 0:
-                    return name
+        meta_match = re.search(r'<meta property="og:title" content="(.*?)"', html_content, re.IGNORECASE)
+        if meta_match:
+            name = meta_match.group(1)
+            if name and 'facebook' not in name.lower():
+                return name.strip()
         
         return "Unknown"
     except:
@@ -97,23 +72,18 @@ def extract_account_name(html_content):
 def check_account_status(uid):
     """
     Check if Facebook account is live using m.facebook.com
-    This is the most reliable single method
     
-    Args:
-        uid: Facebook User ID
-        
     Returns:
-        dict: Account status with detailed information
+        dict: {'status': 'live'/'not_live', 'name': 'Name', 'url': 'URL'}
     """
     try:
         profile_url = f"https://m.facebook.com/{uid}"
         
-        # Multiple user agents to try for better reliability
+        # User agents to try
         user_agents = [
             'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
             'Mozilla/5.0 (Linux; Android 13; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
             'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-            'Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36',
         ]
         
         for user_agent in user_agents:
@@ -125,19 +95,14 @@ def check_account_status(uid):
                     'Accept-Encoding': 'gzip, deflate, br',
                     'Connection': 'keep-alive',
                     'Upgrade-Insecure-Requests': '1',
-                    'Sec-Fetch-Dest': 'document',
-                    'Sec-Fetch-Mode': 'navigate',
-                    'Sec-Fetch-Site': 'none',
-                    'Cache-Control': 'max-age=0',
                 }
                 
-                # Make request with timeout
+                # Make request
                 response = requests.get(
                     profile_url, 
                     headers=headers, 
                     timeout=15, 
-                    allow_redirects=True,
-                    verify=True
+                    allow_redirects=True
                 )
                 
                 # Check status code
@@ -145,38 +110,28 @@ def check_account_status(uid):
                     content = response.text
                     content_lower = content.lower()
                     
-                    # STRONG indicators that account is LIVE and ACTIVE
+                    # LIVE indicators
                     live_indicators = [
                         'timeline',
-                        'timelineBody',
                         'profile_picture',
-                        '<div id="objects_container"',
                         'about_section',
                         'Add Friend',
                         'Message',
-                        'See Friendship',
                         'Friends',
                         'Photos',
                         'About',
-                        'following',
-                        'followers',
                         'Posts',
-                        'profile_cover',
                         'cover photo',
                         'Intro',
                         'Lives in',
                         'Studied at',
                         'Works at',
-                        'From',
-                        'view_profile',
-                        'profile/timeline',
-                        'See More About',
                     ]
                     
-                    # Count how many live indicators are present
+                    # Count live indicators
                     live_count = sum(1 for indicator in live_indicators if indicator.lower() in content_lower)
                     
-                    # DEAD/UNAVAILABLE indicators
+                    # DEAD indicators
                     dead_indicators = [
                         'content is currently unavailable',
                         'content isn\'t available',
@@ -190,152 +145,107 @@ def check_account_status(uid):
                         'profile not available',
                         'account has been disabled',
                         'account has been deleted',
-                        'user not found',
                     ]
                     
                     # Check for dead indicators
                     has_dead_indicator = any(indicator in content_lower for indicator in dead_indicators)
                     
-                    # Check for redirect to error page
-                    is_error_redirect = 'facebook.com/404' in response.url or '/unsupported' in response.url
-                    
-                    # Decision logic with confidence scoring
-                    if has_dead_indicator or is_error_redirect:
+                    # Decision logic
+                    if has_dead_indicator:
                         return {
                             'status': 'not_live',
-                            'confidence': 'high',
-                            'reason': 'Profile page shows unavailable/deleted message',
                             'url': profile_url
                         }
                     
-                    # If we have strong indicators of a live account
+                    # If we have indicators of a live account
                     elif live_count >= 3:
                         account_name = extract_account_name(content)
-                        
                         return {
                             'status': 'live',
-                            'confidence': 'high' if live_count >= 5 else 'medium',
                             'name': account_name,
-                            'indicators': live_count,
-                            'url': profile_url,
-                            'reason': f'Found {live_count} activity indicators on profile'
+                            'url': profile_url
                         }
                     
-                    # If we have some indicators but not many
+                    # If we have some indicators
                     elif live_count > 0:
                         account_name = extract_account_name(content)
-                        
                         return {
                             'status': 'live',
-                            'confidence': 'low',
                             'name': account_name,
-                            'indicators': live_count,
-                            'url': profile_url,
-                            'reason': 'Profile exists but may be restricted or private'
+                            'url': profile_url
                         }
                     
-                    # Unclear - page loaded but no clear indicators
+                    # Unclear
                     else:
                         return {
-                            'status': 'unknown',
-                            'confidence': 'low',
-                            'reason': 'Profile page loaded but status unclear',
+                            'status': 'not_live',
                             'url': profile_url
                         }
                 
-                # 404 means profile doesn't exist
+                # 404 means not found
                 elif response.status_code == 404:
                     return {
                         'status': 'not_live',
-                        'confidence': 'high',
-                        'reason': 'Profile not found (HTTP 404)',
                         'url': profile_url
                     }
                 
-                # Other error codes
+                # Other errors
                 elif response.status_code >= 400:
                     return {
                         'status': 'not_live',
-                        'confidence': 'medium',
-                        'reason': f'HTTP error {response.status_code}',
                         'url': profile_url
                     }
                 
-                # If this user agent worked, no need to try others
+                # If this worked, break
                 if response.status_code == 200:
                     break
                     
-            except requests.Timeout:
-                # Try next user agent on timeout
-                continue
-            except requests.ConnectionError:
-                # Try next user agent on connection error
+            except:
                 continue
         
-        # If all user agents failed
+        # If all failed
         return {
             'status': 'error',
-            'confidence': 'none',
-            'reason': 'Could not connect to Facebook',
             'url': profile_url
         }
         
     except Exception as e:
         return {
             'status': 'error',
-            'confidence': 'none',
-            'reason': f'Unexpected error: {str(e)}',
             'url': f'https://m.facebook.com/{uid}'
         }
 
 
 def check_single_account(uid):
-    """
-    Check a single Facebook account
-    """
+    """Check a single Facebook account"""
     banner()
     print(f"{W}[{G}•{W}]{G} Checking UID: {V}{uid}{W}")
     linex()
     print(f"{W}[{V}•{W}]{V} Connecting to m.facebook.com...{W}")
     
-    # Check account status
+    # Check account
     result = check_account_status(uid)
     
     linex()
     
-    # Display results based on status
+    # Display results
     if result['status'] == 'live':
         print(f"\n{W}[{G}✓{W}]{G} ACCOUNT IS LIVE!{W}")
-        print(f"{W}[{G}•{W}]{G} Confidence: {result['confidence'].upper()}{W}")
         print(f"{W}[{G}•{W}]{G} Account Name: {G}{result.get('name', 'Unknown')}{W}")
         print(f"{W}[{G}•{W}]{G} Profile URL: {G}{result['url']}{W}")
-        print(f"{W}[{G}•{W}]{G} Indicators Found: {result.get('indicators', 0)}{W}")
-        print(f"{W}[{G}•{W}]{G} Reason: {result.get('reason', '')}{W}")
         return 'live', result.get('name', 'Unknown')
         
     elif result['status'] == 'not_live':
-        print(f"\n{W}[{R}✗{W}]{R} ACCOUNT IS NOT LIVE / DELETED!{W}")
-        print(f"{W}[{R}•{W}]{R} Confidence: {result['confidence'].upper()}{W}")
-        print(f"{W}[{R}•{W}]{R} Reason: {result.get('reason', 'Unknown')}{W}")
+        print(f"\n{W}[{R}✗{W}]{R} ACCOUNT IS DEAD / NOT AVAILABLE!{W}")
         return 'not_live', None
         
-    elif result['status'] == 'unknown':
-        print(f"\n{W}[{Y}?{W}]{Y} STATUS UNCLEAR{W}")
-        print(f"{W}[{Y}•{W}]{Y} Confidence: {result['confidence'].upper()}{W}")
-        print(f"{W}[{Y}•{W}]{Y} Reason: {result.get('reason', 'Unknown')}{W}")
-        print(f"{W}[{Y}•{W}]{Y} Note: Account may be heavily restricted or private{W}")
-        return 'unknown', None
-        
-    else:  # error
+    else:
         print(f"\n{W}[{R}✗{W}]{R} ERROR CHECKING ACCOUNT{W}")
-        print(f"{W}[{R}•{W}]{R} Reason: {result.get('reason', 'Unknown error')}{W}")
         return 'error', None
 
 
 def check_from_file(file_path, output_file='/sdcard/live_accounts.txt', dead_file='/sdcard/dead_accounts.txt'):
-    """
-    Check multiple accounts from a file
-    """
+    """Check multiple accounts from a file"""
     if not os.path.exists(file_path):
         print(f"{R}[ERROR] File not found: {file_path}{W}")
         return
@@ -354,7 +264,6 @@ def check_from_file(file_path, output_file='/sdcard/live_accounts.txt', dead_fil
     total = len(uids)
     live_count = 0
     dead_count = 0
-    unknown_count = 0
     error_count = 0
     
     banner()
@@ -375,14 +284,13 @@ def check_from_file(file_path, output_file='/sdcard/live_accounts.txt', dead_fil
             if result['status'] == 'live':
                 live_count += 1
                 name = result.get('name', 'Unknown')
-                confidence = result.get('confidence', 'unknown')
                 
-                print(f"{G}✓ LIVE ({confidence}){W}")
+                print(f"{G}✓ LIVE{W}")
                 
                 # Save to live file
                 try:
                     with open(output_file, 'a') as f:
-                        f.write(f"{uid}|{name}|{confidence}\n")
+                        f.write(f"{uid}|{name}\n")
                 except:
                     pass
                     
@@ -397,11 +305,7 @@ def check_from_file(file_path, output_file='/sdcard/live_accounts.txt', dead_fil
                 except:
                     pass
                     
-            elif result['status'] == 'unknown':
-                unknown_count += 1
-                print(f"{Y}? UNKNOWN{W}")
-                
-            else:  # error
+            else:
                 error_count += 1
                 print(f"{R}✗ ERROR{W}")
             
@@ -410,7 +314,6 @@ def check_from_file(file_path, output_file='/sdcard/live_accounts.txt', dead_fil
                 f"\r{W}Progress: {i}/{total} | "
                 f"{G}LIVE: {live_count}{W} | "
                 f"{R}DEAD: {dead_count}{W} | "
-                f"{Y}UNKNOWN: {unknown_count}{W} | "
                 f"{R}ERROR: {error_count}{W}     "
             )
             sys.stdout.flush()
@@ -434,7 +337,6 @@ def check_from_file(file_path, output_file='/sdcard/live_accounts.txt', dead_fil
     print(f'{W}[{G}•{W}]{G} Total Checked {W}: {V}{i}{W}')
     print(f'{W}[{G}•{W}]{G} Live Accounts {W}: {G}{live_count}{W}')
     print(f'{W}[{R}•{W}]{G} Dead Accounts {W}: {R}{dead_count}{W}')
-    print(f'{W}[{Y}•{W}]{G} Unknown Status {W}: {Y}{unknown_count}{W}')
     print(f'{W}[{R}•{W}]{G} Errors {W}: {R}{error_count}{W}')
     linex()
     
@@ -535,4 +437,5 @@ def main():
         sys.exit(1)
 
 
-if __name__ == "__main__"
+if __name__ == "__main__":
+    main()
