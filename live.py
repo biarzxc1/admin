@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-Facebook Account Live Checker
-Checks if a Facebook account is live or not using UID
-Verifies by checking profile picture status
+Facebook Account Live Checker - Enhanced Version
+Checks if a Facebook account is truly live and active
+Uses multiple reliable verification methods
 """
 
 import os
 import sys
 import time
 import requests
+import json
 
 # ANSI color codes
 W = '\033[97m'  # White
@@ -40,152 +41,348 @@ def linex():
     print(f"{W}─────────────────────────────────────────────{W}")
 
 
-def check_facebook_profile_picture(uid):
+def check_via_graph_api_v1(uid):
     """
-    Check if a UID has a real profile picture using Facebook Graph API
-    
-    Args:
-        uid: Facebook User ID
-        
-    Returns:
-        str: "live" if account has real profile picture, "not_live" otherwise
-    """
-    pic_url = f"https://graph.facebook.com/{uid}/picture?type=normal"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 10; SM-G975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Mobile Safari/537.36"
-    }
-    
-    try:
-        response = requests.get(pic_url, headers=headers, allow_redirects=False, timeout=10)
-        
-        if response.status_code == 302:
-            redirect_url = response.headers.get("Location", "")
-            
-            # If redirect URL contains "scontent", it's a real profile picture
-            if "scontent" in redirect_url:
-                return "live"
-            else:
-                return "not_live"
-        else:
-            return "unknown"
-            
-    except requests.RequestException as e:
-        return "error"
-
-
-def check_account_via_api(uid):
-    """
-    Check account status via Facebook Graph API
-    
-    Args:
-        uid: Facebook User ID
-        
-    Returns:
-        dict: Account status information
+    Method 1: Check via Facebook Graph API with public access token
+    This checks if the account exists and is accessible
     """
     try:
-        # Try to get basic profile info
-        api_url = f"https://graph.facebook.com/{uid}?fields=id,name&access_token=6628568379|c1e620fa708a1d5696fb991c1bde5662"
+        # Multiple access tokens to try
+        access_tokens = [
+            "6628568379|c1e620fa708a1d5696fb991c1bde5662",
+            "350685531728|62f8ce9f74b12f84c123cc23437a4a32",
+            "2429830407|84bf0e08f3c83728e91f13c708178f8e"
+        ]
         
-        response = requests.get(api_url, timeout=10)
-        data = response.json()
+        for token in access_tokens:
+            try:
+                api_url = f"https://graph.facebook.com/{uid}?fields=id,name,link&access_token={token}"
+                response = requests.get(api_url, timeout=10)
+                data = response.json()
+                
+                if 'id' in data and 'name' in data:
+                    return {
+                        'status': 'live',
+                        'id': data['id'],
+                        'name': data['name'],
+                        'link': data.get('link', f'https://facebook.com/{uid}'),
+                        'method': 'Graph API v1'
+                    }
+                elif 'error' in data:
+                    error_code = data['error'].get('code')
+                    error_msg = data['error'].get('message', '')
+                    
+                    # Check specific error codes
+                    if error_code == 803:  # Account doesn't exist
+                        return {
+                            'status': 'not_live',
+                            'error': 'Account does not exist',
+                            'method': 'Graph API v1'
+                        }
+                    elif 'Unsupported get request' in error_msg:
+                        return {
+                            'status': 'not_live',
+                            'error': 'Account not found or deleted',
+                            'method': 'Graph API v1'
+                        }
+                    elif error_code == 100:  # Invalid parameter
+                        return {
+                            'status': 'not_live',
+                            'error': 'Invalid UID',
+                            'method': 'Graph API v1'
+                        }
+                    # Try next token
+                    continue
+            except:
+                continue
         
-        if 'id' in data:
-            return {
-                'status': 'live',
-                'id': data.get('id'),
-                'name': data.get('name', 'Unknown'),
-                'method': 'API'
-            }
-        elif 'error' in data:
-            error_msg = data['error'].get('message', 'Unknown error')
-            if 'Unsupported get request' in error_msg or 'does not exist' in error_msg:
+        return {
+            'status': 'unknown',
+            'error': 'Could not verify with available tokens',
+            'method': 'Graph API v1'
+        }
+    except Exception as e:
+        return {
+            'status': 'error',
+            'error': str(e),
+            'method': 'Graph API v1'
+        }
+
+
+def check_via_profile_url(uid):
+    """
+    Method 2: Check by accessing the profile URL directly
+    This verifies if the profile page loads successfully
+    """
+    try:
+        profile_url = f"https://mbasic.facebook.com/{uid}"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive',
+        }
+        
+        response = requests.get(profile_url, headers=headers, timeout=10, allow_redirects=True)
+        
+        # Check response
+        if response.status_code == 200:
+            content = response.text.lower()
+            
+            # Check for indicators that account exists
+            if 'timeline' in content or 'about' in content or 'photos' in content:
+                # Extract name if possible
+                name = "Unknown"
+                if '<title>' in response.text:
+                    try:
+                        title = response.text.split('<title>')[1].split('</title>')[0]
+                        if '|' in title:
+                            name = title.split('|')[0].strip()
+                        else:
+                            name = title.strip()
+                    except:
+                        pass
+                
+                return {
+                    'status': 'live',
+                    'name': name,
+                    'method': 'Profile URL'
+                }
+            
+            # Check for indicators that account doesn't exist or is unavailable
+            elif 'content not found' in content or 'page not found' in content or 'this page isn' in content:
                 return {
                     'status': 'not_live',
-                    'error': error_msg,
-                    'method': 'API'
+                    'error': 'Profile not found',
+                    'method': 'Profile URL'
                 }
             else:
                 return {
                     'status': 'unknown',
-                    'error': error_msg,
-                    'method': 'API'
+                    'error': 'Could not determine status',
+                    'method': 'Profile URL'
                 }
+        elif response.status_code == 404:
+            return {
+                'status': 'not_live',
+                'error': 'Profile not found (404)',
+                'method': 'Profile URL'
+            }
         else:
             return {
                 'status': 'unknown',
-                'method': 'API'
+                'error': f'Unexpected status code: {response.status_code}',
+                'method': 'Profile URL'
             }
     except Exception as e:
         return {
             'status': 'error',
             'error': str(e),
-            'method': 'API'
+            'method': 'Profile URL'
+        }
+
+
+def check_via_search(uid):
+    """
+    Method 3: Check if account appears in Facebook search results
+    """
+    try:
+        search_url = f"https://mbasic.facebook.com/search/people/?q={uid}"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 11; SM-A515F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+        }
+        
+        response = requests.get(search_url, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            content = response.text
+            
+            # Check if UID appears in search results
+            if uid in content and ('profile' in content.lower() or 'timeline' in content.lower()):
+                return {
+                    'status': 'live',
+                    'method': 'Search'
+                }
+            else:
+                return {
+                    'status': 'not_live',
+                    'error': 'Not found in search',
+                    'method': 'Search'
+                }
+        else:
+            return {
+                'status': 'unknown',
+                'method': 'Search'
+            }
+    except Exception as e:
+        return {
+            'status': 'error',
+            'error': str(e),
+            'method': 'Search'
+        }
+
+
+def check_via_mobile_profile(uid):
+    """
+    Method 4: Check via mobile Facebook URL (m.facebook.com)
+    Most reliable method for checking if account exists
+    """
+    try:
+        profile_url = f"https://m.facebook.com/{uid}"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://m.facebook.com/',
+        }
+        
+        response = requests.get(profile_url, headers=headers, timeout=10, allow_redirects=True)
+        
+        if response.status_code == 200:
+            content = response.text.lower()
+            
+            # Strong indicators that account exists and is live
+            if any(indicator in content for indicator in ['timeline', 'profile', 'about', 'photos', 'friends', 'add friend', 'message']):
+                # Try to extract name
+                name = "Unknown"
+                try:
+                    if '<title>' in response.text:
+                        title = response.text.split('<title>')[1].split('</title>')[0]
+                        # Clean up the name
+                        if ' | Facebook' in title:
+                            name = title.split(' | Facebook')[0].strip()
+                        elif '|' in title:
+                            name = title.split('|')[0].strip()
+                        else:
+                            name = title.strip()
+                except:
+                    pass
+                
+                return {
+                    'status': 'live',
+                    'name': name,
+                    'url': profile_url,
+                    'method': 'Mobile Profile'
+                }
+            
+            # Indicators that account doesn't exist
+            elif any(indicator in content for indicator in ['content is currently unavailable', 'page you requested', 'this content isn', 'sorry, this page']):
+                return {
+                    'status': 'not_live',
+                    'error': 'Profile not available',
+                    'method': 'Mobile Profile'
+                }
+        elif response.status_code == 404:
+            return {
+                'status': 'not_live',
+                'error': 'Profile not found (404)',
+                'method': 'Mobile Profile'
+            }
+        
+        return {
+            'status': 'unknown',
+            'method': 'Mobile Profile'
+        }
+    except Exception as e:
+        return {
+            'status': 'error',
+            'error': str(e),
+            'method': 'Mobile Profile'
         }
 
 
 def check_single_account(uid):
     """
-    Check a single Facebook account status using multiple methods
-    
-    Args:
-        uid: Facebook User ID
+    Check a single Facebook account using all available methods
     """
     banner()
     print(f"{W}[{G}•{W}]{G} Checking UID: {V}{uid}{W}")
     linex()
     
-    # Method 1: Check profile picture
-    print(f"{W}[{V}•{W}]{V} Method 1: Checking profile picture...{W}", end='', flush=True)
-    pic_status = check_facebook_profile_picture(uid)
+    results = []
+    live_count = 0
+    dead_count = 0
+    account_name = "Unknown"
     
-    if pic_status == "live":
+    # Method 1: Mobile Profile (Most reliable)
+    print(f"{W}[{V}•{W}]{V} Method 1: Checking mobile profile...{W}", end='', flush=True)
+    result1 = check_via_mobile_profile(uid)
+    results.append(result1)
+    
+    if result1['status'] == 'live':
         print(f" {G}✓ LIVE{W}")
-        print(f"{W}[{G}•{W}]{G} Status: {G}Account is LIVE (has profile picture){W}")
-    elif pic_status == "not_live":
+        live_count += 1
+        account_name = result1.get('name', 'Unknown')
+        print(f"{W}[{G}•{W}]{G} Name: {G}{account_name}{W}")
+    elif result1['status'] == 'not_live':
         print(f" {R}✗ NOT LIVE{W}")
-        print(f"{W}[{R}•{W}]{R} Status: Account may be inactive or default picture{W}")
+        dead_count += 1
+        print(f"{W}[{R}•{W}]{R} Error: {result1.get('error', 'Unknown')}{W}")
     else:
         print(f" {Y}? UNKNOWN{W}")
     
     time.sleep(1)
     
-    # Method 2: Check via API
-    print(f"{W}[{V}•{W}]{V} Method 2: Checking via Graph API...{W}", end='', flush=True)
-    api_result = check_account_via_api(uid)
+    # Method 2: Profile URL Check
+    print(f"{W}[{V}•{W}]{V} Method 2: Checking profile URL...{W}", end='', flush=True)
+    result2 = check_via_profile_url(uid)
+    results.append(result2)
     
-    if api_result['status'] == 'live':
+    if result2['status'] == 'live':
         print(f" {G}✓ LIVE{W}")
-        print(f"{W}[{G}•{W}]{G} Name: {G}{api_result.get('name', 'Unknown')}{W}")
-        print(f"{W}[{G}•{W}]{G} ID: {G}{api_result.get('id', uid)}{W}")
-    elif api_result['status'] == 'not_live':
+        live_count += 1
+        if account_name == "Unknown":
+            account_name = result2.get('name', 'Unknown')
+    elif result2['status'] == 'not_live':
         print(f" {R}✗ NOT LIVE{W}")
-        print(f"{W}[{R}•{W}]{R} Error: {api_result.get('error', 'Unknown')}{W}")
+        dead_count += 1
+    else:
+        print(f" {Y}? UNKNOWN{W}")
+    
+    time.sleep(1)
+    
+    # Method 3: Graph API
+    print(f"{W}[{V}•{W}]{V} Method 3: Checking via Graph API...{W}", end='', flush=True)
+    result3 = check_via_graph_api_v1(uid)
+    results.append(result3)
+    
+    if result3['status'] == 'live':
+        print(f" {G}✓ LIVE{W}")
+        live_count += 1
+        account_name = result3.get('name', account_name)
+        print(f"{W}[{G}•{W}]{G} Name: {G}{result3.get('name', 'Unknown')}{W}")
+        print(f"{W}[{G}•{W}]{G} Link: {G}{result3.get('link', '')}{W}")
+    elif result3['status'] == 'not_live':
+        print(f" {R}✗ NOT LIVE{W}")
+        dead_count += 1
     else:
         print(f" {Y}? UNKNOWN{W}")
     
     linex()
     
-    # Final verdict
-    if pic_status == "live" or api_result['status'] == 'live':
+    # Final verdict based on majority
+    if live_count >= 2:
         print(f"\n{W}[{G}✓{W}]{G} FINAL VERDICT: Account is LIVE!{W}")
-        return "live"
-    elif pic_status == "not_live" and api_result['status'] == 'not_live':
-        print(f"\n{W}[{R}✗{W}]{R} FINAL VERDICT: Account is NOT LIVE!{W}")
-        return "not_live"
+        print(f"{W}[{G}•{W}]{G} Account Name: {G}{account_name}{W}")
+        print(f"{W}[{G}•{W}]{G} Profile URL: {G}https://facebook.com/{uid}{W}")
+        return "live", account_name
+    elif dead_count >= 2:
+        print(f"\n{W}[{R}✗{W}]{R} FINAL VERDICT: Account is NOT LIVE or DELETED!{W}")
+        return "not_live", None
     else:
-        print(f"\n{W}[{Y}?{W}]{Y} FINAL VERDICT: Status UNKNOWN{W}")
-        return "unknown"
+        print(f"\n{W}[{Y}?{W}]{Y} FINAL VERDICT: Status UNCLEAR{W}")
+        print(f"{W}[{Y}•{W}]{Y} Results are mixed. Account might be restricted or private.{W}")
+        return "unknown", None
 
 
 def check_from_file(file_path, output_file='/sdcard/live_accounts.txt', dead_file='/sdcard/dead_accounts.txt'):
     """
     Check multiple accounts from a file
-    
-    Args:
-        file_path: Path to file containing UIDs (one per line)
-        output_file: Path to save live accounts
-        dead_file: Path to save dead accounts
     """
     if not os.path.exists(file_path):
         print(f"{R}[ERROR] File not found: {file_path}{W}")
@@ -218,27 +415,50 @@ def check_from_file(file_path, output_file='/sdcard/live_accounts.txt', dead_fil
         try:
             print(f"\n{W}[{V}•{W}]{V} Checking {i}/{total}: {uid}{W}")
             
-            # Check profile picture
-            pic_status = check_facebook_profile_picture(uid)
+            # Use all methods for accurate results
+            results = []
             
-            # Check via API
-            api_result = check_account_via_api(uid)
+            # Mobile profile check
+            result1 = check_via_mobile_profile(uid)
+            results.append(result1)
             
-            # Determine final status
-            if pic_status == "live" or api_result['status'] == 'live':
+            time.sleep(0.5)
+            
+            # Profile URL check
+            result2 = check_via_profile_url(uid)
+            results.append(result2)
+            
+            time.sleep(0.5)
+            
+            # Graph API check
+            result3 = check_via_graph_api_v1(uid)
+            results.append(result3)
+            
+            # Count votes
+            live_votes = sum(1 for r in results if r['status'] == 'live')
+            dead_votes = sum(1 for r in results if r['status'] == 'not_live')
+            
+            # Get account name if available
+            account_name = "Unknown"
+            for r in results:
+                if r['status'] == 'live' and 'name' in r and r['name'] != "Unknown":
+                    account_name = r['name']
+                    break
+            
+            # Determine final status (majority vote)
+            if live_votes >= 2:
                 status = "live"
                 live_count += 1
-                print(f"{G}[LIVE] {uid}{W}")
+                print(f"{G}[LIVE] {uid} - {account_name}{W}")
                 
                 # Save to live file
                 try:
                     with open(output_file, 'a') as f:
-                        name = api_result.get('name', 'Unknown')
-                        f.write(f"{uid}|{name}\n")
+                        f.write(f"{uid}|{account_name}\n")
                 except:
                     pass
                     
-            elif pic_status == "not_live" or api_result['status'] == 'not_live':
+            elif dead_votes >= 2:
                 status = "not_live"
                 dead_count += 1
                 print(f"{R}[DEAD] {uid}{W}")
@@ -263,7 +483,7 @@ def check_from_file(file_path, output_file='/sdcard/live_accounts.txt', dead_fil
             )
             sys.stdout.flush()
             
-            time.sleep(1)  # Delay to avoid rate limiting
+            time.sleep(2)  # Delay to avoid rate limiting
             
         except KeyboardInterrupt:
             print(f"\n\n{R}[!] Process interrupted by user{W}")
@@ -313,7 +533,7 @@ def main_menu():
                 input(f"{W}[{G}•{W}]{G} Press Enter to continue... ")
                 continue
             
-            status = check_single_account(uid)
+            status, name = check_single_account(uid)
             
             input(f"\n{W}[{G}•{W}]{G} Press Enter to continue... ")
         
