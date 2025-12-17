@@ -64,7 +64,7 @@ style = f"{white}[{green}●{white}]{RESET}"
 stylee = f"{white}[{red}!{white}]{RESET}"
 
 # --- API CONFIGURATION ---
-API_URL = "https://admindatabase-y4iw.onrender.com/api"
+API_URL = "https://admindatabaserpw.vercel.app/api"
 CURRENT_VERSION = "1.1.0"
 user_token = None
 user_data = None
