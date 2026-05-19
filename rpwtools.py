@@ -1167,42 +1167,126 @@ def view_all_orders():
 # ============ POST ID EXTRACTION ============
 
 def extract_post_id_from_link(link):
-    link = link.strip()
+    """Extract a numeric Facebook post/video/photo ID from a wide variety of FB URL formats."""
+    link = (link or '').strip()
     
+    if not link:
+        return None
+    
+    # Already a raw numeric ID
     if link.isdigit():
         return link
     
-    link = re.sub(r'^https?://', '', link)
-    link = re.sub(r'^(www\.|m\.)', '', link)
+    # Normalize: strip protocol and common subdomains
+    normalized = re.sub(r'^https?://', '', link)
+    normalized = re.sub(r'^(www\.|m\.|web\.|mbasic\.|business\.|touch\.|d\.|free\.)', '', normalized)
     
+    # Ordered patterns - most specific first
     patterns = [
-        r'facebook\.com/.*?/posts/(\d+)',
-        r'facebook\.com/.*?/photos/.*?/(\d+)',
-        r'facebook\.com/permalink\.php\?story_fbid=(\d+)',
-        r'facebook\.com/story\.php\?story_fbid=(\d+)',
-        r'facebook\.com/photo\.php\?fbid=(\d+)',
-        r'/(\d+)/?$'
+        # /<user>/posts/<id> or /<user>/posts/pfbid... (we still want any digits after)
+        r'facebook\.com/[^/]+/posts/(\d{6,})',
+        # /<user>/videos/<id>
+        r'facebook\.com/[^/]+/videos/(\d{6,})',
+        # /reel/<id>
+        r'facebook\.com/reel/(\d{6,})',
+        # /watch/?v=<id>
+        r'facebook\.com/watch/?\?v=(\d{6,})',
+        # /<user>/photos/<set>/<id>
+        r'facebook\.com/[^/]+/photos/[^/]+/(\d{6,})',
+        # /photo.php?fbid=<id>  or /photo/?fbid=<id>
+        r'facebook\.com/photo(?:\.php|/)?\?[^#]*fbid=(\d{6,})',
+        # /permalink.php?story_fbid=<id>
+        r'facebook\.com/permalink\.php\?[^#]*story_fbid=(\d{6,})',
+        # /story.php?story_fbid=<id>
+        r'facebook\.com/story\.php\?[^#]*story_fbid=(\d{6,})',
+        # /groups/<gid>/posts/<id> or /groups/<gid>/permalink/<id>
+        r'facebook\.com/groups/[^/]+/(?:posts|permalink)/(\d{6,})',
+        # ?v=<id> anywhere
+        r'[?&]v=(\d{6,})',
+        # ?fbid=<id> anywhere
+        r'[?&]fbid=(\d{6,})',
+        # ?story_fbid=<id> anywhere
+        r'[?&]story_fbid=(\d{6,})',
+        # last resort: trailing digits
+        r'/(\d{8,})/?(?:[?#].*)?$',
     ]
     
     for pattern in patterns:
-        match = re.search(pattern, link)
+        match = re.search(pattern, normalized)
         if match:
             return match.group(1)
     
-    return link
+    # If we couldn't extract a numeric id, return None so caller knows to resolve via network
+    return None
+
+async def _resolve_post_id_from_facebook(session, link):
+    """Follow the FB URL ourselves and try to scrape the numeric post ID from the HTML.
+    Works for share URLs (facebook.com/share/p/..., share/v/..., /share/r/...) and short links."""
+    headers = {
+        'user-agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        'accept': 'text/html,application/xhtml+xml',
+        'accept-language': 'en-US,en;q=0.9',
+    }
+    try:
+        # Force mobile basic version which has cleaner markup and reliable redirects
+        url = link
+        if 'facebook.com' in url and not url.startswith('http'):
+            url = 'https://' + url
+        
+        async with session.get(url, headers=headers, timeout=15, allow_redirects=True) as response:
+            final_url = str(response.url)
+            text = await response.text()
+            
+            # Try the final URL itself first (after redirects)
+            pid = extract_post_id_from_link(final_url)
+            if pid:
+                return pid
+            
+            # Search the HTML for common post id markers
+            html_patterns = [
+                r'"post_id":"(\d{6,})"',
+                r'"story_fbid":"(\d{6,})"',
+                r'"top_level_post_id":"(\d{6,})"',
+                r'"video_id":"(\d{6,})"',
+                r'"id":"(\d{15,})"',
+                r'fbid=(\d{6,})',
+                r'story_fbid=(\d{6,})',
+            ]
+            for pat in html_patterns:
+                m = re.search(pat, text)
+                if m:
+                    return m.group(1)
+    except Exception:
+        return None
+    return None
 
 async def getid(session, link):
+    """Resolve a Facebook URL to a numeric post ID using local extraction first,
+    then a direct facebook.com fallback, then the third-party service as last resort."""
+    # 1) Local regex extraction
+    pid = extract_post_id_from_link(link)
+    if pid and pid.isdigit():
+        return pid
+    
+    # 2) Direct facebook fetch + scrape
+    pid = await _resolve_post_id_from_facebook(session, link)
+    if pid and pid.isdigit():
+        return pid
+    
+    # 3) Third-party fallback
     try:
-        async with session.post('https://id.traodoisub.com/api.php', data={"link": link}) as response:
-            rq = await response.json()
-            if 'success' in rq:
-                return rq["id"]
-            else:
-                print(f" {R('[ERROR] Incorrect post link!')}")
-                return None
-    except Exception as e:
-        print(f" {R(f'[ERROR] Failed to get post ID: {e}')}")
-        return None
+        async with session.post('https://id.traodoisub.com/api.php', data={"link": link}, timeout=15) as response:
+            try:
+                rq = await response.json(content_type=None)
+            except Exception:
+                rq = {}
+            if isinstance(rq, dict) and 'id' in rq and str(rq['id']).isdigit():
+                return str(rq['id'])
+    except Exception:
+        pass
+    
+    print(f" {R('[ERROR] Could not extract post ID from link. Try a direct post URL or numeric post ID.')}")
+    return None
 
 # ============ NORMAL SHARING (BUSINESS_LOCATIONS METHOD) ============
 
@@ -1430,7 +1514,7 @@ async def auto_share_main(link_or_id, selected_cookies, order_info=None):
     async with aiohttp.ClientSession() as session:
         post_id = extract_post_id_from_link(link_or_id)
         
-        if not post_id.isdigit():
+        if not post_id or not str(post_id).isdigit():
             refresh_screen()
             print(f" {G('[!] EXTRACTING POST ID FROM LINK...')}")
             nice_loader("EXTRACTING")
