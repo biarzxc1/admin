@@ -1942,7 +1942,12 @@ def start_smm_panel_boost():
         if status == 201 and response.get('success'):
             break
         
-        if 'duplicate' in str(response.get('message', '')).lower() or 'already' in str(response.get('message', '')).lower():
+        # Safely extract message whether response is dict or error string
+        if isinstance(response, dict):
+            resp_msg = str(response.get('message', '') or '').lower()
+        else:
+            resp_msg = str(response or '').lower()
+        if 'duplicate' in resp_msg or 'already' in resp_msg:
             if attempt < max_retries - 1:
                 print(f" {Y('[!] Order ID already exists, generating new ID...')}")
                 time.sleep(0.5)
