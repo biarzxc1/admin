@@ -1277,6 +1277,7 @@ async def smm_share(session, cookie, token, post_link, account_name, display_mod
         
         try:
             url = f'https://b-graph.facebook.com/me/feed?link={post_link}&published=0&access_token={token}'
+            current_time = datetime.datetime.now().strftime("%H:%M:%S")
             
             async with session.post(url, headers=headers, timeout=10) as response:
                 data = await response.json()
